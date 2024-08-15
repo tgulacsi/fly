@@ -5,14 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
 
+	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/ryanair"
-	"github.com/tgulacsi/fly/talk"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 )
@@ -24,7 +23,7 @@ func main() {
 	}
 }
 func Main() error {
-	client := talk.HTTPClient{Client: *http.DefaultClient}
+	client := airline.NewClient(nil)
 	rar := ryanair.Ryanair{Client: client}
 
 	origin := "BUD"

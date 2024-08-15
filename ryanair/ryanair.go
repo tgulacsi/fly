@@ -13,14 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tgulacsi/fly/talk"
+	"github.com/tgulacsi/fly/airline"
 )
 
 const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/{{origin}}`
 
-type Ryanair struct{ Client talk.HTTPClient }
+type Ryanair struct{ Client airline.HTTPClient }
 
-func (co Ryanair) Destinations(ctx context.Context, origin string) ([]ArrivalAirport, error) {
+func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
 	sr, err := co.Client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
 	if err != nil {
 		return nil, err
@@ -29,9 +29,26 @@ func (co Ryanair) Destinations(ctx context.Context, origin string) ([]ArrivalAir
 		Airport ArrivalAirport `json:"arrivalAirport"`
 	}
 	err = json.NewDecoder(sr).Decode(&arrivals)
-	arrs := make([]ArrivalAirport, len(arrivals))
+	arrs := make([]airline.Airport, len(arrivals))
 	for i, a := range arrivals {
-		arrs[i] = a.Airport
+		A := a.Airport
+		arrs[i] = airline.Airport{
+			Aliases:  A.Aliases,
+			Tags:     A.Tags,
+			Code:     A.Code,
+			Name:     A.Name,
+			SEO:      A.SEO,
+			Operator: A.Operator,
+			City:     airline.NameCode{Name: A.City.Name, Code: A.City.Code},
+			Region:   airline.NameCode(A.Region),
+			Country: airline.Country{
+				NameCode:       airline.NameCode(A.Country.NameCode),
+				Currency:       A.Country.Currency,
+				DefaultAirport: A.Country.DefaultAirport,
+			},
+			Coordinates: airline.Coordinate(A.Coordinates),
+			TimeZone:    A.TimeZone,
+		}
 	}
 	return arrs, err
 }
@@ -108,7 +125,32 @@ type Coordinate struct {
 
 const faresURL = `https://www.ryanair.com/api/farfnd/v4/oneWayFares/{{origin}}/{{destination}}/cheapestPerDay?outboundMonthOfDate={{departDate}}&currency={{currency}}`
 
-func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]Fare, error) {
+func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
+	var originTZ, destinationTZ *time.Location
+	airports, _ := co.Destinations(ctx, origin)
+	for _, a := range airports {
+		if a.Code == destination {
+			var err error
+			if destinationTZ, err = time.LoadLocation(a.TimeZone); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if originTZ != nil {
+			continue
+		}
+		backs, _ := co.Destinations(ctx, a.Code)
+		for _, a := range backs {
+			if a.Code == origin {
+				var err error
+				if originTZ, err = time.LoadLocation(a.TimeZone); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
+
 	sr, err := co.Client.Get(ctx, strings.NewReplacer(
 		"{{origin}}", origin,
 		"{{destination}}", destination,
@@ -127,12 +169,27 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 	io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
 	slog.Info(buf.String())
 	err = json.NewDecoder(sr).Decode(&fares)
-	ff := make([]Fare, 0, len(fares.Outbound.Fares))
+	ff := make([]airline.Fare, 0, len(fares.Outbound.Fares))
 	for _, f := range fares.Outbound.Fares {
 		if f.Unavailable || f.SoldOut || f.Departure == "" {
 			continue
 		}
-		ff = append(ff, f)
+		const timePat = "2006-01-02T15:04:05"
+		arrival, err := time.ParseInLocation(timePat, f.Arrival, destinationTZ)
+		if err != nil {
+			return ff, err
+		}
+		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
+		if err != nil {
+			return ff, err
+		}
+		ff = append(ff, airline.Fare{
+			Day:       f.Day,
+			Price:     f.Price.Value,
+			Currency:  f.Price.Currency,
+			Arrival:   arrival,
+			Departure: departure,
+		})
 	}
 	return ff, err
 }

@@ -1,5 +1,11 @@
+github.com/cozy/httpcache v0.0.0-20210224123405-3f334f841945 h1:EfeD2CzaZclMHyFxSuaA1BTfqVTLaFwqlASiNNil4nE=
+github.com/cozy/httpcache v0.0.0-20210224123405-3f334f841945/go.mod h1:rLnjIcybyvs+PoCzi4+GmpOVp0+q+qdcuZKnKUKJoF4=
 github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 h1:/RVgXZkKAnmlRC/625cvago9x6ROe7fNj7cCdGc4ICw=
 github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3/go.mod h1:FDHdQKtI1NtvxIYsG/y+ymRaIQIsp+LRSTGl7eBKQEU=
+github.com/google/btree v1.1.2 h1:xf4v41cLI2Z6FxbKm+8Bu+m8ifhj15JuZ9sa0jZCMUU=
+github.com/google/btree v1.1.2/go.mod h1:qOPhT0dTNdNzV6Z/lhRX0YXUafgPLFUh+gZMl761Gm4=
+github.com/peterbourgon/diskv v2.0.1+incompatible h1:UBdAOUP5p4RWqPBg048CAvpKN+vxiaj6gdUUzhl4XmI=
+github.com/peterbourgon/diskv v2.0.1+incompatible/go.mod h1:uqqh8zWWbv1HBMNONnaR/tNboyR3/BZd58JJSHlUSCU=
 github.com/peterbourgon/ff/v3 v3.4.0 h1:QBvM/rizZM1cB0p0lGMdmR7HxZeI/ZrBWB4DqLkMUBc=
 github.com/peterbourgon/ff/v3 v3.4.0/go.mod h1:zjJVUhx+twciwfDl0zBcFzl4dW8axCRyXE/eKY9RztQ=
 github.com/tgulacsi/go v0.27.5 h1:QyPHc9FDNDTZI4t+jm2/O+1tl04ItFJKaUgtHCq6hQ0=

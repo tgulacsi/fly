@@ -2,26 +2,44 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package talk
+package airline
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/cozy/httpcache"
+	"github.com/cozy/httpcache/diskcache"
 	"github.com/tgulacsi/go/iohlp"
 )
 
-type HTTPClient struct{ http.Client }
+type HTTPClient struct{ client *http.Client }
+
+func NewClient(client *http.Client) HTTPClient {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = "/tmp"
+	}
+	cacheDir = filepath.Join(cacheDir, "airline")
+	cache := diskcache.New(cacheDir)
+	client.Transport = httpcache.NewTransport(cache)
+	return HTTPClient{client: client}
+}
 
 func (c HTTPClient) Get(ctx context.Context, URL string) (*io.SectionReader, error) {
 	req, err := http.NewRequest("GET", URL, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.Client.Do(req.WithContext(ctx))
+	resp, err := c.client.Do(req.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
