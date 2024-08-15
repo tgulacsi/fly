@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tgulacsi/fly/airline"
+	"github.com/tgulacsi/fly/easyjet"
 	"github.com/tgulacsi/fly/ryanair"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -25,6 +26,7 @@ func main() {
 func Main() error {
 	client := airline.NewClient(nil)
 	rar := ryanair.Ryanair{Client: client}
+	ej := easyjet.EasyJet{Client: client}
 
 	origin := "BUD"
 	FS := flag.NewFlagSet("destinations", flag.ContinueOnError)
@@ -58,6 +60,13 @@ func Main() error {
 				return fmt.Errorf("parse %q as 2006-01-02: %w", args[1], err)
 			}
 			fares, err := rar.Fares(ctx, origin, destination, departDate, currency)
+			for _, f := range fares {
+				fmt.Println(f)
+			}
+			if err != nil {
+				return err
+			}
+			fares, err = ej.Fares(ctx, origin, destination, departDate, currency)
 			for _, f := range fares {
 				fmt.Println(f)
 			}

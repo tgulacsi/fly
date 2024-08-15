@@ -20,6 +20,8 @@ const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/route
 
 type Ryanair struct{ Client airline.HTTPClient }
 
+var _ airline.Airline = Ryanair{}
+
 func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
 	sr, err := co.Client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
 	if err != nil {

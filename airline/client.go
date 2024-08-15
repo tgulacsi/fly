@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cozy/httpcache"
 	"github.com/cozy/httpcache/diskcache"
@@ -51,4 +52,8 @@ func (c HTTPClient) Get(ctx context.Context, URL string) (*io.SectionReader, err
 		return nil, fmt.Errorf("%s: %s", resp.Status, buf.String())
 	}
 	return sr, err
+}
+
+type Airline interface {
+	Fares(context.Context, string, string, time.Time, string) ([]Fare, error)
 }
