@@ -7,9 +7,10 @@ package easyjet
 import (
 	"context"
 	"log/slog"
-	"net/url"
+	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/tgulacsi/fly/airline"
 )
 
@@ -17,17 +18,33 @@ type EasyJet struct{ Client airline.HTTPClient }
 
 var _ airline.Airline = EasyJet{}
 
-func (ej EasyJet) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
-	qry := url.Values(map[string][]string{
-		"AdultSeats":       {"1"},
-		"Destination":      {destination},
-		"Origin":           {origin},
-		"IncludeAdminFees": {"true"}, "IncludeLowestFareSeats": {"true"},
-		"IncludePrices": {"true"}, "LanguageCode": {"EN"},
-		"MaxDepartureDate": {departDate.Add(24 * time.Hour).Format("2006-01-02")},
+func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Destination, error) {
+	sr, err := ej.Client.Get(ctx, "https://www.easyjet.com/en/flights-timetables")
+	if err != nil {
+		return nil, err
+	}
+	doc, err := goquery.NewDocumentFromReader(sr)
+	if err != nil {
+		return nil, err
+	}
+	var destinations []airline.Airport
+	doc.Find("a").Each(func(_ int, sel *goquery.Selection) {
+		for _, a := range sel.Nodes[0].Attr {
+			if a.Key != "href" {
+				continue
+			}
+			if _, suffix, found := strings.Cut(a.Val, "/cheap-flights/"); found {
+				if from, to, found := strings.Cut(suffix, "/"); found {
+					if from == origin {
+						destinations = append(destinations, airline.Airport{Name: to})
+					}
+				}
+			}
+		}
 	})
-	URL := "https://www.easyjet.com/ejavailability/api/v9/availability/query?" + qry.Encode()
-	slog.Info("Fares", "request", URL)
+	return destinations, nil
+}
+func (ej EasyJet) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	return nil, nil
 }
 
