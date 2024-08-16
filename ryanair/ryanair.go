@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tgulacsi/fly/airline"
+	"github.com/tgulacsi/fly/iata"
 )
 
 const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/{{origin}}`
@@ -128,27 +129,32 @@ type Coordinate struct {
 const faresURL = `https://www.ryanair.com/api/farfnd/v4/oneWayFares/{{origin}}/{{destination}}/cheapestPerDay?outboundMonthOfDate={{departDate}}&currency={{currency}}`
 
 func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
-	var originTZ, destinationTZ *time.Location
-	airports, _ := co.Destinations(ctx, origin)
-	for _, a := range airports {
-		if a.Code == destination {
-			var err error
-			if destinationTZ, err = time.LoadLocation(a.TimeZone); err != nil {
-				return nil, err
-			}
-			break
-		}
-		if originTZ != nil {
-			continue
-		}
-		backs, _ := co.Destinations(ctx, a.Code)
-		for _, a := range backs {
-			if a.Code == origin {
+	a, _ := iata.Get(origin)
+	originTZ, _ := time.LoadLocation(a.TimeZone)
+	a, _ = iata.Get(destination)
+	destinationTZ, _ := time.LoadLocation(a.TimeZone)
+	if originTZ == nil || destinationTZ == nil {
+		airports, _ := co.Destinations(ctx, origin)
+		for _, a := range airports {
+			if destinationTZ == nil && a.Code == destination {
 				var err error
-				if originTZ, err = time.LoadLocation(a.TimeZone); err != nil {
+				if destinationTZ, err = time.LoadLocation(a.TimeZone); err != nil {
 					return nil, err
 				}
 				break
+			}
+			if originTZ != nil {
+				continue
+			}
+			backs, _ := co.Destinations(ctx, a.Code)
+			for _, a := range backs {
+				if a.Code == origin {
+					var err error
+					if originTZ, err = time.LoadLocation(a.TimeZone); err != nil {
+						return nil, err
+					}
+					break
+				}
 			}
 		}
 	}

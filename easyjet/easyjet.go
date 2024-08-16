@@ -12,13 +12,14 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/tgulacsi/fly/airline"
+	"github.com/tgulacsi/fly/iata"
 )
 
 type EasyJet struct{ Client airline.HTTPClient }
 
 var _ airline.Airline = EasyJet{}
 
-func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Destination, error) {
+func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
 	sr, err := ej.Client.Get(ctx, "https://www.easyjet.com/en/flights-timetables")
 	if err != nil {
 		return nil, err
@@ -35,8 +36,11 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.De
 			}
 			if _, suffix, found := strings.Cut(a.Val, "/cheap-flights/"); found {
 				if from, to, found := strings.Cut(suffix, "/"); found {
-					if from == origin {
-						destinations = append(destinations, airline.Airport{Name: to})
+					slog.Debug("search", "from", from, "origin", origin, "to", to)
+					if f, ok := iata.Get(from); ok && f.IATACode == origin {
+						if t, ok := iata.Get(to); ok {
+							destinations = append(destinations, airline.Airport{Code: t.IATACode})
+						}
 					}
 				}
 			}

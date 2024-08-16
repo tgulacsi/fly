@@ -33,7 +33,7 @@ func Main() error {
 	FS.StringVar(&origin, "origin", origin, "origin")
 	destinationsCmd := ffcli.Command{Name: "destinations", FlagSet: FS,
 		Exec: func(ctx context.Context, args []string) error {
-			destinations, err := rar.Destinations(ctx, origin)
+			destinations, err := ej.Destinations(ctx, origin)
 			for _, d := range destinations {
 				fmt.Println(d)
 			}

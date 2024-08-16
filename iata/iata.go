@@ -4,12 +4,28 @@
 
 package iata
 
+import (
+	"log/slog"
+	"strings"
+	"sync"
+	"unicode"
+)
+
 //go:generate go run ./gen.go
+//go:generate go fmt
 
 // "id","ident","type","name","latitude_deg","longitude_deg","elevation_ft","continent","iso_country","iso_region","municipality","scheduled_service","gps_code","iata_code","local_code","home_link","wikipedia_link","keywords"
 // 4296,"LHBP","large_airport","Budapest Liszt Ferenc International Airport",47.43018,19.262393,495,"EU","HU","HU-BU","Budapest","yes","LHBP","BUD",,"http://www.bud.hu/english","https://en.wikipedia.org/wiki/Budapest_Ferenc_Liszt_International_Airport","Ferihegyi nemzetközi repülőtér, Budapest Liszt Ferenc international Airport"
 
-var Airports map[string]Airport
+// TODO[tgulacsi]: try FlatBuffers
+
+type lookup struct {
+	once     sync.Once
+	m        map[string]Airport
+	nameCode map[string]string
+}
+
+var airports lookup
 
 type Airport struct {
 	ID, Ident, Type, Name string
@@ -24,4 +40,61 @@ type Airport struct {
 	LocalCode             string `csv:"local_code"`
 	Home                  string `csv:"home_link"`
 	Wikipedia             string `csv:"wikipedia_link"`
+	TimeZone              string
 }
+
+func (l *lookup) init() {
+	l.once.Do(func() {
+		l.nameCode = make(map[string]string, len(l.m))
+		var buf strings.Builder
+		for k, v := range l.m {
+			buf.Reset()
+			for _, f := range strings.Fields(strings.ToLower(v.Name)) {
+				if f == "international" || f == "air" || strings.Contains(f, "airport") || strings.HasSuffix(f, ".") {
+					continue
+				}
+				l.nameCode[f] = k
+				if buf.Len() != 0 {
+					buf.WriteByte('-')
+				}
+				buf.WriteString(f)
+			}
+			l.nameCode[buf.String()] = k
+			s := strings.Map(func(r rune) rune {
+				if !unicode.IsLetter(r) {
+					return r
+				}
+				q := r
+				for {
+					q = unicode.SimpleFold(q)
+					if q == r {
+						break
+					}
+					if q <= 255 {
+						return q
+					}
+				}
+				return unicode.ToLower(r)
+			}, v.Municipality)
+			l.nameCode[s] = k
+			for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == '/' || r == '-' || r == ' ' || r == ',' }) {
+				l.nameCode[f] = k
+			}
+		}
+	})
+}
+func (l *lookup) Get(nameOrCode string) (Airport, bool) {
+	l.init()
+	if a, ok := l.m[nameOrCode]; ok {
+		return a, ok
+	}
+	for _, nm := range append([]string{nameOrCode, strings.TrimSuffix(nameOrCode, "-intl")}, strings.FieldsFunc(nameOrCode, func(r rune) bool { return r == '-' || r == ' ' })...) {
+		if c, ok := l.nameCode[nm]; ok {
+			return l.m[c], true
+		}
+	}
+	slog.Info("not found", "nameOrCode", nameOrCode)
+	return Airport{}, false
+}
+
+func Get(iataCode string) (Airport, bool) { return airports.Get(iataCode) }

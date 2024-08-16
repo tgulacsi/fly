@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,9 +33,12 @@ func main() {
 }
 
 func Main() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
-	sr, err := airline.NewClient(nil).Get(ctx, "https://davidmegginson.github.io/ourairports-data/airports.csv")
+	client := airline.NewClient(nil)
+	shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
+	sr, err := client.Get(shortCtx, "https://davidmegginson.github.io/ourairports-data/airports.csv")
+	shortCancel()
 	if err != nil {
 		return err
 	}
@@ -82,8 +86,9 @@ func Main() error {
 // GENERATED
 
 func init() {
-	Airports = map[string]Airport{
+	airports = lookup{m :map[string]Airport{
 `)
+	printTimer := time.NewTicker(10 * time.Second)
 	for {
 		row, err := cr.Read()
 		if err != nil {
@@ -105,13 +110,34 @@ func init() {
 			}
 		}
 		v := a.Elem().Interface().(iata.Airport)
-		if v.IATACode != "" {
-			s := strings.Replace(pretty.Sprintf("%# v", v), "iata.", "", 1)
-			pretty.Fprintf(bw, "%q: %s,\n", v.IATACode, s)
+		if v.IATACode == "" {
+			continue
 		}
+		URL := fmt.Sprintf("https://www.timeapi.io/api/timezone/coordinate?latitude=%v&longitude=%v", v.Lat, v.Lon)
+		select {
+		case <-printTimer.C:
+			log.Printf("%.03f%% at %s (%s)", float32(100*cr.InputOffset())/float32(sr.Size()), v.IATACode, URL)
+		}
+		shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
+		sr, err := client.Get(shortCtx, URL)
+		shortCancel()
+		if err != nil {
+			return err
+		}
+
+		type timeZoneResponse struct {
+			TimeZone string `json:"timeZone"`
+		}
+		var tz timeZoneResponse
+		if err := json.NewDecoder(sr).Decode(&tz); err != nil {
+			return err
+		}
+		v.TimeZone = tz.TimeZone
+		s := strings.Replace(pretty.Sprintf("%# v", v), "iata.", "", 1)
+		pretty.Fprintf(bw, "%q: %s,\n", v.IATACode, s)
 	}
 	bw.WriteString(`
-	}
+	}}
 }
 `)
 	bw.Flush()
