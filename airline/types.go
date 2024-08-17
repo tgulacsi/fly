@@ -36,6 +36,8 @@ type Coordinate struct {
 }
 
 type Fare struct {
+	Airline   string    `json:"airline"`
+	Source    string    `json:"source"`
 	Day       string    `json:"day"`
 	Arrival   time.Time `json:"arrivalDate"`
 	Departure time.Time `json:"departureDate"`

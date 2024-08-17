@@ -3,33 +3,73 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package ryanair
+package wizzair
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"time"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
+	// "golang.org/x/net/publicsuffix"
 )
 
 const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/{{origin}}`
 
-type Ryanair struct{ Client airline.HTTPClient }
+func New(client *http.Client) (Wizzair, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	jar, err := cookiejar.New(&cookiejar.Options{
+		// PublicSuffixList: publicsuffix.List,
+	})
+	if err != nil {
+		return Wizzair{}, err
+	}
+	client.Jar = jar
+	var cookies []*http.Cookie
+	wz := Wizzair{client: airline.NewClient(client, false).
+		SetPrepare(func(r *http.Request) {
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set(
+				"User-Agent", "Mozilla/5.0 (Windows NT 10.0; rv:129.0) Gecko/20100101 Firefox/129.0",
+			)
+			for _, c := range cookies {
+				r.AddCookie(c)
+			}
+		}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	_, resp, err := wz.client.Get(ctx, "https://wizzair.com/en-gb")
+	cancel()
+	if err != nil {
+		return wz, err
+	}
+	if err == nil && len(resp.Cookies()) == 0 {
+		err = fmt.Errorf("got no cookies from wizzair.com")
+	}
+	return wz, err
+}
 
-var _ airline.Airline = Ryanair{}
+type Wizzair struct{ client airline.HTTPClient }
+
+var _ airline.Airline = Wizzair{}
 
 const (
-	airlineName = "Ryanair"
-	sourceName  = "ryanair"
+	airlineName = "Wizz Air"
+	sourceName  = "wizzair"
 )
 
-func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
-	sr, _, err := co.Client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
+func (co Wizzair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
+	sr, _, err := co.client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
 	if err != nil {
 		return nil, err
 	}
@@ -131,67 +171,40 @@ type Coordinate struct {
 	Lon float64 `json:"longitude"`
 }
 
-const faresURL = `https://www.ryanair.com/api/farfnd/v4/oneWayFares/{{origin}}/{{destination}}/cheapestPerDay?outboundMonthOfDate={{departDate}}&currency={{currency}}`
+const faresURL = `https://be.wizzair.com/24.6.0/Api/search/CheapFlights`
 
-func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
+type faresReq struct {
+	Origin         string `json:"departureStation"`
+	Months         int    `json:"months"`
+	DiscountedOnly bool   `json:"discountedOnly"`
+}
+
+func (co Wizzair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	a, _ := iata.Get(origin)
 	originTZ, _ := time.LoadLocation(a.TimeZone)
-	a, _ = iata.Get(destination)
-	destinationTZ, _ := time.LoadLocation(a.TimeZone)
-	if originTZ == nil || destinationTZ == nil {
-		airports, _ := co.Destinations(ctx, origin)
-		for _, a := range airports {
-			if destinationTZ == nil && a.Code == destination {
-				var err error
-				if destinationTZ, err = time.LoadLocation(a.TimeZone); err != nil {
-					return nil, err
-				}
-				break
-			}
-			if originTZ != nil {
-				continue
-			}
-			backs, _ := co.Destinations(ctx, a.Code)
-			for _, a := range backs {
-				if a.Code == origin {
-					var err error
-					if originTZ, err = time.LoadLocation(a.TimeZone); err != nil {
-						return nil, err
-					}
-					break
-				}
-			}
-		}
+	months := 1
+	now := time.Now()
+	for now.AddDate(0, months, 0).Before(departDate) {
+		months++
 	}
-
-	sr, _, err := co.Client.Get(ctx, strings.NewReplacer(
-		"{{origin}}", origin,
-		"{{destination}}", destination,
-		"{{currency}}", currency,
-		"{{departDate}}", departDate.Format("2006-01-02"),
-	).Replace(faresURL))
+	b, err := json.Marshal(faresReq{Origin: origin, Months: months})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal fares request: %w", err)
+	}
+	sr, _, err := co.client.Post(ctx, faresURL, bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("%s [%s]: %w", faresURL, string(b), err)
 	}
 	var fares struct {
-		Outbound struct {
-			Fares []Fare `json:"fares"`
-		} `json:"outbound"`
+		Fares []Fare `json:"items"`
 	}
 	var buf strings.Builder
 	io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
 	slog.Info(buf.String())
 	err = json.NewDecoder(sr).Decode(&fares)
-	ff := make([]airline.Fare, 0, len(fares.Outbound.Fares))
-	for _, f := range fares.Outbound.Fares {
-		if f.Unavailable || f.SoldOut || f.Departure == "" {
-			continue
-		}
+	ff := make([]airline.Fare, 0, len(fares.Fares))
+	for _, f := range fares.Fares {
 		const timePat = "2006-01-02T15:04:05"
-		arrival, err := time.ParseInLocation(timePat, f.Arrival, destinationTZ)
-		if err != nil {
-			return ff, err
-		}
 		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
 		if err != nil {
 			return ff, err
@@ -199,10 +212,8 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		ff = append(ff, airline.Fare{
 			Airline:   airlineName,
 			Source:    sourceName,
-			Day:       f.Day,
-			Price:     f.Price.Value,
-			Currency:  f.Price.Currency,
-			Arrival:   arrival,
+			Price:     f.RegularPrice.Value,
+			Currency:  f.RegularPrice.Currency,
 			Departure: departure,
 		})
 	}
@@ -210,17 +221,20 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 }
 
 type Fare struct {
-	Day         string `json:"day"`
-	Arrival     string `json:"arrivalDate"`
-	Departure   string `json:"departureDate"`
-	Price       Price  `json:"price"`
-	SoldOut     bool   `json:"soldOut"`
-	Unavailable bool   `json:"unavailable"`
+	PastPrice            Price  `json:"pastPrice"`
+	RegularOriginalPrice Price  `json:"regularOriginalPrice"`
+	RegularPrice         Price  `json:"regularPrice"`
+	WDCOriginalPrice     Price  `json:"wdcOriginalPrice"`
+	WDCPastPrice         Price  `json:"wdcPastPrice"`
+	WDCPrice             Price  `json:"wdcPrice"`
+	Destination          string `json:"arrivalStation"`
+	Currency             string `json:"currencyCode"`
+	Origin               string `json:"departureStation"`
+	Months               int    `json:"months"`
+	DiscountedOnly       bool   `json:"discountedOnly"`
+	Departure            string `json:"std"`
 }
 type Price struct {
-	Value               float64 `json:"value"`
-	ValueMainUnit       string  `json:"valueMainUnit"`
-	ValueFractionalUnit string  `json:"valueFractionalUnit"`
-	Currency            string  `json:"currencyCode"`
-	Symbol              string  `json:"currencySymbol"`
+	Value    float64 `json:"amount"`
+	Currency string  `json:"currencyCode"`
 }

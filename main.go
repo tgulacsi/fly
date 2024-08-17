@@ -12,7 +12,9 @@ import (
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/easyjet"
+	"github.com/tgulacsi/fly/gflights"
 	"github.com/tgulacsi/fly/ryanair"
+	"github.com/tgulacsi/fly/wizzair"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 )
@@ -24,16 +26,25 @@ func main() {
 	}
 }
 func Main() error {
-	client := airline.NewClient(nil)
-	rar := ryanair.Ryanair{Client: client}
-	ej := easyjet.EasyJet{Client: client}
+	rar := ryanair.Ryanair{Client: airline.NewClient(nil, false)}
+	ej := easyjet.EasyJet{Client: airline.NewClient(nil, false)}
+	wz, err := wizzair.New(nil)
+	if err != nil {
+		return err
+	}
+	G, err := gflights.New()
+	if err != nil {
+		return err
+	}
+	airlines := []airline.Airline{rar, ej, wz, G}
+	airlines = airlines[2:3]
 
 	origin := "BUD"
 	FS := flag.NewFlagSet("destinations", flag.ContinueOnError)
 	FS.StringVar(&origin, "origin", origin, "origin")
 	destinationsCmd := ffcli.Command{Name: "destinations", FlagSet: FS,
 		Exec: func(ctx context.Context, args []string) error {
-			destinations, err := ej.Destinations(ctx, origin)
+			destinations, err := rar.Destinations(ctx, origin)
 			for _, d := range destinations {
 				fmt.Println(d)
 			}
@@ -59,16 +70,14 @@ func Main() error {
 			if err != nil {
 				return fmt.Errorf("parse %q as 2006-01-02: %w", args[1], err)
 			}
-			fares, err := rar.Fares(ctx, origin, destination, departDate, currency)
-			for _, f := range fares {
-				fmt.Println(f)
-			}
-			if err != nil {
-				return err
-			}
-			fares, err = ej.Fares(ctx, origin, destination, departDate, currency)
-			for _, f := range fares {
-				fmt.Println(f)
+			for _, f := range airlines {
+				fares, err := f.Fares(ctx, origin, destination, departDate, currency)
+				for _, f := range fares {
+					fmt.Println(f)
+				}
+				if err != nil {
+					return err
+				}
 			}
 			return err
 		},

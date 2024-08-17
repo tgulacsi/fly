@@ -35,7 +35,7 @@ func main() {
 func Main() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
-	client := airline.NewClient(nil)
+	client := airline.NewClient(nil, true)
 	shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
 	sr, err := client.Get(shortCtx, "https://davidmegginson.github.io/ourairports-data/airports.csv")
 	shortCancel()

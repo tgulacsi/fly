@@ -20,7 +20,7 @@ type EasyJet struct{ Client airline.HTTPClient }
 var _ airline.Airline = EasyJet{}
 
 func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
-	sr, err := ej.Client.Get(ctx, "https://www.easyjet.com/en/flights-timetables")
+	sr, _, err := ej.Client.Get(ctx, "https://www.easyjet.com/en/flights-timetables")
 	if err != nil {
 		return nil, err
 	}
