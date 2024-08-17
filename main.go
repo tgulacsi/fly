@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,15 +71,32 @@ func Main() error {
 			if err != nil {
 				return fmt.Errorf("parse %q as 2006-01-02: %w", args[1], err)
 			}
+			cmpFare := func(a, b airline.Fare) int {
+				if a.Currency != b.Currency {
+					return 0
+				}
+				if a.Price < b.Price {
+					return -1
+				} else if a.Price == b.Price {
+					return 0
+				}
+				return 1
+			}
+
+			var fares []airline.Fare
 			for _, f := range airlines {
-				fares, err := f.Fares(ctx, origin, destination, departDate, currency)
+				local, err := f.Fares(ctx, origin, destination, departDate, currency)
 				for _, f := range fares {
 					fmt.Println(f)
 				}
+				slices.SortFunc(local, cmpFare)
+				fares = append(fares, local...)
 				if err != nil {
 					return err
 				}
 			}
+			slices.SortStableFunc(fares, cmpFare)
+			fmt.Println(fares)
 			return err
 		},
 	}

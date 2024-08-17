@@ -197,13 +197,15 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 			return ff, err
 		}
 		ff = append(ff, airline.Fare{
-			Airline:   airlineName,
-			Source:    sourceName,
-			Day:       f.Day,
-			Price:     f.Price.Value,
-			Currency:  f.Price.Currency,
-			Arrival:   arrival,
-			Departure: departure,
+			Airline:     airlineName,
+			Source:      sourceName,
+			Origin:      origin,
+			Destination: destination,
+			Day:         f.Day,
+			Price:       f.Price.Value,
+			Currency:    f.Price.Currency,
+			Arrival:     arrival,
+			Departure:   departure,
 		})
 	}
 	return ff, err

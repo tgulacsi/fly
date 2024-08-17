@@ -182,7 +182,7 @@ type faresReq struct {
 func (co Wizzair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	a, _ := iata.Get(origin)
 	originTZ, _ := time.LoadLocation(a.TimeZone)
-	months := 1
+	months := 6
 	now := time.Now()
 	for now.AddDate(0, months, 0).Before(departDate) {
 		months++
@@ -191,6 +191,7 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 	if err != nil {
 		return nil, fmt.Errorf("marshal fares request: %w", err)
 	}
+	slog.Info("POST", "url", faresURL, "request", string(b))
 	sr, _, err := co.client.Post(ctx, faresURL, bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("%s [%s]: %w", faresURL, string(b), err)
@@ -210,11 +211,13 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 			return ff, err
 		}
 		ff = append(ff, airline.Fare{
-			Airline:   airlineName,
-			Source:    sourceName,
-			Price:     f.RegularPrice.Value,
-			Currency:  f.RegularPrice.Currency,
-			Departure: departure,
+			Airline:     airlineName,
+			Source:      sourceName,
+			Origin:      f.Origin,
+			Destination: f.Destination,
+			Price:       f.RegularPrice.Value,
+			Currency:    f.RegularPrice.Currency,
+			Departure:   departure,
 		})
 	}
 	return ff, err
