@@ -12,13 +12,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
 	"time"
 
-	"github.com/asvvvad/exchange"
+	"github.com/cockroachdb/apd/v3"
+	"github.com/tgulacsi/mnbarf/mnb"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
@@ -26,6 +26,8 @@ import (
 )
 
 const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/routes/en/airport/{{origin}}`
+
+var apdCtx = apd.BaseContext.WithPrecision(5)
 
 func New(client *http.Client) (Wizzair, error) {
 	if client == nil {
@@ -51,18 +53,31 @@ func New(client *http.Client) (Wizzair, error) {
 		}),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 	_, resp, err := wz.client.Get(ctx, "https://wizzair.com/en-gb")
-	cancel()
+	if err == nil && len(resp.Cookies()) == 0 {
+		err = fmt.Errorf("got no cookies from wizzair.com")
+	}
 	if err != nil {
 		return wz, err
 	}
-	if err == nil && len(resp.Cookies()) == 0 {
-		err = fmt.Errorf("got no cookies from wizzair.com")
+	wsC := mnb.NewMNBArfolyamService("", nil, slog.Default())
+	dayRates, err := wsC.GetCurrentExchangeRates(ctx)
+	wz.rates = make(map[string]*apd.Decimal, len(dayRates.Rates))
+	for _, r := range dayRates.Rates {
+		d := r.Rate.Decimal
+		if r.Unit != 0 && r.Unit != 1 {
+			apdCtx.Quo(d, d, apd.NewWithBigInt(apd.NewBigInt(int64(r.Unit)), 0))
+		}
+		wz.rates[r.Currency] = d
 	}
 	return wz, err
 }
 
-type Wizzair struct{ client airline.HTTPClient }
+type Wizzair struct {
+	client airline.HTTPClient
+	rates  map[string]*apd.Decimal
+}
 
 var _ airline.Airline = Wizzair{}
 
@@ -213,7 +228,7 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 		if err != nil {
 			return ff, err
 		}
-		price, err := f.RegularPrice.ConvertTo("EUR")
+		price, err := co.Convert(f.RegularPrice, "EUR")
 		if err != nil {
 			return ff, err
 		}
@@ -249,14 +264,19 @@ type Price struct {
 	Currency string  `json:"currencyCode"`
 }
 
-func (p Price) ConvertTo(currency string) (Price, error) {
-	bf, err := exchange.New(p.Currency).ConvertTo(currency, int(p.Value*100.0))
+func (wz Wizzair) Convert(p Price, to string) (Price, error) {
+	v, err := apd.New(0, 0).SetFloat64(p.Value)
 	if err != nil {
 		return p, err
 	}
-	f, _ := bf.Mul(bf, big.NewFloat(1.0/100.0)).Float64()
+	c := apd.MakeErrDecimal(apdCtx)
+	if p.Currency != "HUF" {
+		c.Mul(v, v, wz.rates[p.Currency])
+	}
+	c.Quo(v, v, wz.rates[to])
+	f, err := v.Float64()
 	return Price{
-		Currency: currency,
+		Currency: to,
 		Value:    f,
-	}, nil
+	}, err
 }
