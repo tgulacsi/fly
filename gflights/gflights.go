@@ -6,6 +6,7 @@ package gflights
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
