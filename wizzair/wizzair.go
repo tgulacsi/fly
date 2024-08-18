@@ -29,7 +29,8 @@ const airportsURL = `https://www.ryanair.com/api/views/locate/searchWidget/route
 
 var apdCtx = apd.BaseContext.WithPrecision(5)
 
-func New(client *http.Client) (Wizzair, error) {
+func New(ctx context.Context, client *http.Client) (Wizzair, error) {
+	logger := airline.CtxLogger(ctx)
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -61,22 +62,22 @@ func New(client *http.Client) (Wizzair, error) {
 	if err != nil {
 		return wz, err
 	}
-	wsC := mnb.NewMNBArfolyamService("", nil, slog.Default())
+	wsC := mnb.NewMNBArfolyamService("", nil, logger.With("lib", "mnb"))
 	dayRates, err := wsC.GetCurrentExchangeRates(ctx)
-	wz.rates = make(map[string]*apd.Decimal, len(dayRates.Rates))
+	wz.rates = make(map[string]apd.Decimal, len(dayRates.Rates))
 	for _, r := range dayRates.Rates {
 		d := r.Rate.Decimal
 		if r.Unit != 0 && r.Unit != 1 {
 			apdCtx.Quo(d, d, apd.NewWithBigInt(apd.NewBigInt(int64(r.Unit)), 0))
 		}
-		wz.rates[r.Currency] = d
+		wz.rates[r.Currency] = *d
 	}
 	return wz, err
 }
 
 type Wizzair struct {
 	client airline.HTTPClient
-	rates  map[string]*apd.Decimal
+	rates  map[string]apd.Decimal
 }
 
 var _ airline.Airline = Wizzair{}
@@ -160,17 +161,17 @@ func (co Wizzair) Destinations(ctx context.Context, origin string) ([]airline.Ai
 	  ]
 */
 type ArrivalAirport struct {
-	Aliases     []string   `json:"aliases"`
-	Tags        []string   `json:"tags"`
+	Country     Country    `json:"country"`
+	City        NameCode   `json:"city"`
+	Region      NameCode   `json:"region"`
 	Code        string     `json:"code"`
 	Name        string     `json:"name"`
 	SEO         string     `json:"seoName"`
 	Operator    string     `json:"operator"`
-	City        NameCode   `json:"city"`
-	Region      NameCode   `json:"region"`
-	Country     Country    `json:"country"`
-	Coordinates Coordinate `json:"coordinates"`
 	TimeZone    string     `json:"timeZone"`
+	Aliases     []string   `json:"aliases"`
+	Tags        []string   `json:"tags"`
+	Coordinates Coordinate `json:"coordinates"`
 	Base        bool       `json:"base"`
 	Recent      bool       `json:"recent"`
 	Seasonal    bool       `json:"seasonal"`
@@ -198,6 +199,7 @@ type faresReq struct {
 }
 
 func (co Wizzair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
+	logger := airline.CtxLogger(ctx)
 	a, _ := iata.Get(origin)
 	originTZ, _ := time.LoadLocation(a.TimeZone)
 	months := 6
@@ -209,7 +211,9 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 	if err != nil {
 		return nil, fmt.Errorf("marshal fares request: %w", err)
 	}
-	slog.Info("POST", "url", faresURL, "request", string(b))
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("POST", "url", faresURL, "request", string(b))
+	}
 	sr, _, err := co.client.Post(ctx, faresURL, bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("%s [%s]: %w", faresURL, string(b), err)
@@ -219,14 +223,22 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 	}
 	var buf strings.Builder
 	io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
-	slog.Info(buf.String())
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug(buf.String())
+	}
 	err = json.NewDecoder(sr).Decode(&fares)
 	ff := make([]airline.Fare, 0, len(fares.Fares))
 	for _, f := range fares.Fares {
+		if destination != "" && f.Destination != destination {
+			continue
+		}
 		const timePat = "2006-01-02T15:04:05"
 		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
 		if err != nil {
 			return ff, err
+		}
+		if !departDate.IsZero() && departDate.Sub(departure).Abs() > 6*24*time.Hour {
+			continue
 		}
 		price, err := co.Convert(f.RegularPrice, "EUR")
 		if err != nil {
@@ -240,28 +252,29 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 			Price:       price.Value,
 			Currency:    price.Currency,
 			Departure:   departure,
+			Day:         departure.Format("2006-01-02"),
 		})
 	}
 	return ff, err
 }
 
 type Fare struct {
+	Destination          string `json:"arrivalStation"`
+	Currency             string `json:"currencyCode"`
+	Origin               string `json:"departureStation"`
+	Departure            string `json:"std"`
 	PastPrice            Price  `json:"pastPrice"`
 	RegularOriginalPrice Price  `json:"regularOriginalPrice"`
 	RegularPrice         Price  `json:"regularPrice"`
 	WDCOriginalPrice     Price  `json:"wdcOriginalPrice"`
 	WDCPastPrice         Price  `json:"wdcPastPrice"`
 	WDCPrice             Price  `json:"wdcPrice"`
-	Destination          string `json:"arrivalStation"`
-	Currency             string `json:"currencyCode"`
-	Origin               string `json:"departureStation"`
 	Months               int    `json:"months"`
 	DiscountedOnly       bool   `json:"discountedOnly"`
-	Departure            string `json:"std"`
 }
 type Price struct {
-	Value    float64 `json:"amount"`
 	Currency string  `json:"currencyCode"`
+	Value    float64 `json:"amount"`
 }
 
 func (wz Wizzair) Convert(p Price, to string) (Price, error) {
@@ -271,9 +284,11 @@ func (wz Wizzair) Convert(p Price, to string) (Price, error) {
 	}
 	c := apd.MakeErrDecimal(apdCtx)
 	if p.Currency != "HUF" {
-		c.Mul(v, v, wz.rates[p.Currency])
+		r := wz.rates[p.Currency]
+		c.Mul(v, v, &r)
 	}
-	c.Quo(v, v, wz.rates[to])
+	r := wz.rates[to]
+	c.Quo(v, v, &r)
 	f, err := v.Float64()
 	return Price{
 		Currency: to,

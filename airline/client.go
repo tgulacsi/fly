@@ -91,7 +91,7 @@ func (c HTTPClient) do(req *http.Request) (*io.SectionReader, *http.Response, er
 		io.Copy(&buf, sr)
 		return nil, resp, fmt.Errorf("%s: %s: %s (%s)", resp.Status, buf.String(), req.Header, resp.Header)
 	}
-	slog.Debug("request", "body", req.Header, "response", resp.Header)
+	CtxLogger(req.Context()).Debug("request", "body", req.Header, "response", resp.Header)
 	return sr, resp, err
 }
 
@@ -112,4 +112,16 @@ type prepareRequest func(*http.Request)
 
 func WithPrepare(ctx context.Context, f prepareRequest) context.Context {
 	return context.WithValue(ctx, prepareCtx{}, f)
+}
+
+type loggerCtx struct{}
+
+func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, loggerCtx{}, logger)
+}
+func CtxLogger(ctx context.Context) *slog.Logger {
+	if lgr, _ := ctx.Value(loggerCtx{}).(*slog.Logger); lgr != nil {
+		return lgr
+	}
+	return slog.Default()
 }

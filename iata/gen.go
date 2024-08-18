@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/google/renameio/v2"
-	"github.com/kr/pretty"
+	// "github.com/kr/pretty"
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
 )
@@ -37,7 +37,7 @@ func Main() error {
 	defer cancel()
 	client := airline.NewClient(nil, true)
 	shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
-	sr, err := client.Get(shortCtx, "https://davidmegginson.github.io/ourairports-data/airports.csv")
+	sr, _, err := client.Get(shortCtx, "https://davidmegginson.github.io/ourairports-data/airports.csv")
 	shortCancel()
 	if err != nil {
 		return err
@@ -86,8 +86,17 @@ func Main() error {
 // GENERATED
 
 func init() {
-	airports = lookup{m :map[string]Airport{
+	airports = lookup{m: map[string]Airport{
 `)
+	constants := make(map[string]string)
+	makeConst := func(s string) string {
+		if k, ok := constants[s]; ok {
+			return k
+		}
+		k := fmt.Sprintf("c%04d", len(constants))
+		constants[s] = k
+		return k
+	}
 	printTimer := time.NewTicker(10 * time.Second)
 	for {
 		row, err := cr.Read()
@@ -117,9 +126,10 @@ func init() {
 		select {
 		case <-printTimer.C:
 			log.Printf("%.03f%% at %s (%s)", float32(100*cr.InputOffset())/float32(sr.Size()), v.IATACode, URL)
+		default:
 		}
-		shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
-		sr, err := client.Get(shortCtx, URL)
+		shortCtx, shortCancel := context.WithTimeout(ctx, 3*time.Second)
+		sr, _, err := client.Get(shortCtx, URL)
 		shortCancel()
 		if err != nil {
 			return err
@@ -133,12 +143,37 @@ func init() {
 			return err
 		}
 		v.TimeZone = tz.TimeZone
-		s := strings.Replace(pretty.Sprintf("%# v", v), "iata.", "", 1)
-		pretty.Fprintf(bw, "%q: %s,\n", v.IATACode, s)
+		fmt.Fprintf(bw, `%q: {
+			ID: %q, Ident: %q, Type: %s,
+			Continent: %s, Country: %s, Region: %s, 
+			Municipality: %q,
+			GPSCode: %q, IATACode: %q, LocalCode: %q, 
+			Home: %q, Wikipedia: %q, 
+			TimeZone: %s,
+			Lat: %v, Lon: %v,
+		},
+		`,
+			v.IATACode,
+			v.ID, v.Ident, makeConst(v.Type),
+			makeConst(v.Continent), makeConst(v.Country), makeConst(v.Region),
+			v.Municipality,
+			v.GPSCode, v.IATACode, v.LocalCode,
+			v.Home, v.Wikipedia,
+			makeConst(v.TimeZone),
+			v.Lat, v.Lon,
+		)
 	}
 	bw.WriteString(`
 	}}
 }
+
+const (
+`)
+	for s, k := range constants {
+		fmt.Fprintf(bw, "\t%s = %q\n", k, s)
+	}
+	bw.WriteString(`
+)
 `)
 	bw.Flush()
 	return fh.CloseAtomicallyReplace()

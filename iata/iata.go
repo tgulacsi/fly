@@ -20,19 +20,17 @@ import (
 // TODO[tgulacsi]: try FlatBuffers
 
 type lookup struct {
-	once     sync.Once
 	m        map[string]Airport
 	nameCode map[string]string
+	once     sync.Once
 }
 
 var airports lookup
 
 type Airport struct {
 	ID, Ident, Type, Name string
-	Lat                   float64 `csv:"latitude_deg"`
-	Lon                   float64 `csv:"longitude_deg"`
 	Continent             string
-	Country               string `csv:"iso_counmtry"`
+	Country               string `csv:"iso_country"`
 	Region                string `csv:"iso_region"`
 	Municipality          string
 	GPSCode               string `csv:"gps_code"`
@@ -41,6 +39,8 @@ type Airport struct {
 	Home                  string `csv:"home_link"`
 	Wikipedia             string `csv:"wikipedia_link"`
 	TimeZone              string
+	Lat                   float64 `csv:"latitude_deg"`
+	Lon                   float64 `csv:"longitude_deg"`
 }
 
 func (l *lookup) init() {
@@ -93,8 +93,21 @@ func (l *lookup) Get(nameOrCode string) (Airport, bool) {
 			return l.m[c], true
 		}
 	}
-	slog.Info("not found", "nameOrCode", nameOrCode)
+	slog.Warn("not found", "nameOrCode", nameOrCode)
 	return Airport{}, false
 }
 
+func (l *lookup) Codes(onlyLarge bool) []string {
+	l.init()
+	keys := make([]string, 0, len(l.m))
+	for k, v := range l.m {
+		if onlyLarge && v.Type != "large_airport" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func Get(iataCode string) (Airport, bool) { return airports.Get(iataCode) }
+func Codes(onlyLarge bool) []string       { return airports.Codes(onlyLarge) }

@@ -6,7 +6,6 @@ package easyjet
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -29,6 +28,7 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Ai
 		return nil, err
 	}
 	var destinations []airline.Airport
+	logger := airline.CtxLogger(ctx)
 	doc.Find("a").Each(func(_ int, sel *goquery.Selection) {
 		for _, a := range sel.Nodes[0].Attr {
 			if a.Key != "href" {
@@ -36,7 +36,7 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Ai
 			}
 			if _, suffix, found := strings.Cut(a.Val, "/cheap-flights/"); found {
 				if from, to, found := strings.Cut(suffix, "/"); found {
-					slog.Debug("search", "from", from, "origin", origin, "to", to)
+					logger.Debug("search", "from", from, "origin", origin, "to", to)
 					if f, ok := iata.Get(from); ok && f.IATACode == origin {
 						if t, ok := iata.Get(to); ok {
 							destinations = append(destinations, airline.Airport{Code: t.IATACode})

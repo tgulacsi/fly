@@ -9,17 +9,17 @@ import (
 )
 
 type Airport struct {
-	Aliases     []string   `json:"aliases"`
-	Tags        []string   `json:"tags"`
+	Country     Country    `json:"country"`
+	City        NameCode   `json:"city"`
+	Region      NameCode   `json:"region"`
 	Code        string     `json:"code"`
 	Name        string     `json:"name"`
 	SEO         string     `json:"seoName"`
 	Operator    string     `json:"operator"`
-	City        NameCode   `json:"city"`
-	Region      NameCode   `json:"region"`
-	Country     Country    `json:"country"`
-	Coordinates Coordinate `json:"coordinates"`
 	TimeZone    string     `json:"timeZone"`
+	Aliases     []string   `json:"aliases"`
+	Tags        []string   `json:"tags"`
+	Coordinates Coordinate `json:"coordinates"`
 }
 type Country struct {
 	NameCode
@@ -36,13 +36,13 @@ type Coordinate struct {
 }
 
 type Fare struct {
+	Arrival     time.Time `json:"arrivalDate"`
+	Departure   time.Time `json:"departureDate"`
 	Airline     string    `json:"airline"`
 	Source      string    `json:"source"`
 	Origin      string    `json:"origin"`
 	Destination string    `json:"destination"`
 	Day         string    `json:"day"`
-	Arrival     time.Time `json:"arrivalDate"`
-	Departure   time.Time `json:"departureDate"`
-	Price       float64   `json:"price"`
 	Currency    string    `json:"currency"`
+	Price       float64   `json:"price"`
 }

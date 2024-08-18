@@ -5,19 +5,23 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/signal"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/easyjet"
 	"github.com/tgulacsi/fly/gflights"
 	"github.com/tgulacsi/fly/ryanair"
 	"github.com/tgulacsi/fly/wizzair"
-
-	"github.com/peterbourgon/ff/v3/ffcli"
 )
 
 func main() {
@@ -27,18 +31,22 @@ func main() {
 	}
 }
 func Main() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	ctx = airline.WithLogger(ctx, slog.Default())
+
 	rar := ryanair.Ryanair{Client: airline.NewClient(nil, false)}
 	ej := easyjet.EasyJet{Client: airline.NewClient(nil, false)}
-	wz, err := wizzair.New(nil)
+	wz, err := wizzair.New(ctx, nil)
 	if err != nil {
 		return err
 	}
-	G, err := gflights.New()
+	G, err := gflights.New(ctx)
 	if err != nil {
 		return err
 	}
 	airlines := []airline.Airline{rar, ej, wz, G}
-	airlines = airlines[2:3]
+	// airlines = airlines[3:]
 
 	origin := "BUD"
 	FS := flag.NewFlagSet("destinations", flag.ContinueOnError)
@@ -58,52 +66,89 @@ func Main() error {
 	FS.StringVar(&origin, "origin", origin, "origin")
 	faresCmd := ffcli.Command{Name: "fares", FlagSet: FS,
 		Exec: func(ctx context.Context, args []string) error {
-			if len(args) < 2 {
-				return fmt.Errorf("need destination and date, got only %d", len(args))
+			if len(args) < 1 {
+				return fmt.Errorf("need date, got only %d", len(args))
 			}
-			destination := args[0]
 			departDate, err := time.ParseInLocation("20060102", strings.Map(func(r rune) rune {
 				if '0' <= r && r <= '9' {
 					return r
 				}
 				return -1
-			}, args[1])[:8], time.Local)
+			}, args[0])[:8], time.Local)
+			var destination string
+			if len(args) > 1 {
+				destination = args[1]
+			}
 			if err != nil {
 				return fmt.Errorf("parse %q as 2006-01-02: %w", args[1], err)
 			}
 			cmpFare := func(a, b airline.Fare) int {
 				if a.Currency != b.Currency {
-					return 0
+					slog.Warn("currency mismatch", "a", a, "b", b)
+				} else {
+					if a.Price < b.Price {
+						return -1
+					} else if a.Price > b.Price {
+						return 1
+					}
 				}
-				if a.Price < b.Price {
+				if a.Day < b.Day {
 					return -1
-				} else if a.Price == b.Price {
-					return 0
+				} else if a.Day > b.Day {
+					return 1
 				}
-				return 1
+				if a.Origin == b.Origin {
+					if a.Destination < b.Destination {
+						return -1
+					} else if a.Destination > b.Destination {
+						return 1
+					}
+				}
+				return 0
 			}
 
+			var mu sync.Mutex
 			var fares []airline.Fare
+			grp, grpCtx := errgroup.WithContext(ctx)
 			for _, f := range airlines {
-				local, err := f.Fares(ctx, origin, destination, departDate, currency)
-				for _, f := range fares {
-					fmt.Println(f)
-				}
-				slices.SortFunc(local, cmpFare)
-				fares = append(fares, local...)
-				if err != nil {
+				f := f
+				grp.Go(func() error {
+					local, err := f.Fares(grpCtx, origin, destination, departDate, currency)
+					if err != nil {
+						err = fmt.Errorf("%T: %w", f, err)
+					}
+					slices.SortFunc(local, cmpFare)
+					for i, f := range local {
+						// round to .50
+						f.Price = math.Round(f.Price*2.0) / 2.0
+						local[i] = f
+					}
+					mu.Lock()
+					fares = append(fares, local...)
+					mu.Unlock()
 					return err
-				}
+				})
+			}
+			if err := grp.Wait(); err != nil {
+				return err
 			}
 			slices.SortStableFunc(fares, cmpFare)
-			fmt.Println(fares)
+			fmt.Println()
+			for _, f := range slices.Compact(fares) {
+				if f.Currency != currency {
+					slog.Warn("currency mismatch", "wanted", currency, "got", f)
+				}
+				if f.Destination == "" {
+					slog.Warn("no destination", "got", f)
+				}
+				fmt.Printf("% 3.2f\t%s\t%s\t%s\n",
+					f.Price, f.Day, f.Destination, f.Airline)
+			}
 			return err
 		},
 	}
 	app := ffcli.Command{Name: "fly", Subcommands: []*ffcli.Command{
 		&destinationsCmd, &faresCmd,
 	}}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
 	return app.ParseAndRun(ctx, os.Args[1:])
 }

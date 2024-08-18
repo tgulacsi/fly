@@ -11,7 +11,10 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
@@ -102,17 +105,17 @@ func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Ai
 	  ]
 */
 type ArrivalAirport struct {
-	Aliases     []string   `json:"aliases"`
-	Tags        []string   `json:"tags"`
+	Country     Country    `json:"country"`
+	City        NameCode   `json:"city"`
+	Region      NameCode   `json:"region"`
 	Code        string     `json:"code"`
 	Name        string     `json:"name"`
 	SEO         string     `json:"seoName"`
 	Operator    string     `json:"operator"`
-	City        NameCode   `json:"city"`
-	Region      NameCode   `json:"region"`
-	Country     Country    `json:"country"`
-	Coordinates Coordinate `json:"coordinates"`
 	TimeZone    string     `json:"timeZone"`
+	Aliases     []string   `json:"aliases"`
+	Tags        []string   `json:"tags"`
+	Coordinates Coordinate `json:"coordinates"`
 	Base        bool       `json:"base"`
 	Recent      bool       `json:"recent"`
 	Seasonal    bool       `json:"seasonal"`
@@ -134,20 +137,22 @@ type Coordinate struct {
 const faresURL = `https://www.ryanair.com/api/farfnd/v4/oneWayFares/{{origin}}/{{destination}}/cheapestPerDay?outboundMonthOfDate={{departDate}}&currency={{currency}}`
 
 func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
+	logger := airline.CtxLogger(ctx)
+	var airports []airline.Airport
+	getAirports := func() error {
+		var err error
+		if len(airports) == 0 {
+			airports, err = co.Destinations(ctx, origin)
+		}
+		return err
+	}
+
 	a, _ := iata.Get(origin)
 	originTZ, _ := time.LoadLocation(a.TimeZone)
 	a, _ = iata.Get(destination)
-	destinationTZ, _ := time.LoadLocation(a.TimeZone)
-	if originTZ == nil || destinationTZ == nil {
-		airports, _ := co.Destinations(ctx, origin)
+	if originTZ == nil {
+		getAirports()
 		for _, a := range airports {
-			if destinationTZ == nil && a.Code == destination {
-				var err error
-				if destinationTZ, err = time.LoadLocation(a.TimeZone); err != nil {
-					return nil, err
-				}
-				break
-			}
 			if originTZ != nil {
 				continue
 			}
@@ -164,51 +169,91 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		}
 	}
 
-	sr, _, err := co.Client.Get(ctx, strings.NewReplacer(
-		"{{origin}}", origin,
-		"{{destination}}", destination,
-		"{{currency}}", currency,
-		"{{departDate}}", departDate.Format("2006-01-02"),
-	).Replace(faresURL))
-	if err != nil {
-		return nil, err
+	destTZs := make(map[string]*time.Location)
+	var destinations []string
+	if destination != "" {
+		destinations = []string{destination}
+		if a, ok := iata.Get(destination); ok {
+			destTZs[a.IATACode], _ = time.LoadLocation(a.TimeZone)
+		} else {
+			if err := getAirports(); err != nil {
+				return nil, err
+			}
+			for _, a := range airports {
+				if a.Code == destination {
+					destTZs[a.Code], _ = time.LoadLocation(a.TimeZone)
+				}
+			}
+		}
+	} else {
+		if err := getAirports(); err != nil {
+			return nil, err
+		}
+		destinations = make([]string, len(airports))
+		for i, a := range airports {
+			destinations[i] = a.Code
+			destTZs[a.Code], _ = time.LoadLocation(a.TimeZone)
+		}
 	}
-	var fares struct {
-		Outbound struct {
-			Fares []Fare `json:"fares"`
-		} `json:"outbound"`
-	}
-	var buf strings.Builder
-	io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
-	slog.Info(buf.String())
-	err = json.NewDecoder(sr).Decode(&fares)
-	ff := make([]airline.Fare, 0, len(fares.Outbound.Fares))
-	for _, f := range fares.Outbound.Fares {
-		if f.Unavailable || f.SoldOut || f.Departure == "" {
-			continue
-		}
-		const timePat = "2006-01-02T15:04:05"
-		arrival, err := time.ParseInLocation(timePat, f.Arrival, destinationTZ)
-		if err != nil {
-			return ff, err
-		}
-		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
-		if err != nil {
-			return ff, err
-		}
-		ff = append(ff, airline.Fare{
-			Airline:     airlineName,
-			Source:      sourceName,
-			Origin:      origin,
-			Destination: destination,
-			Day:         f.Day,
-			Price:       f.Price.Value,
-			Currency:    f.Price.Currency,
-			Arrival:     arrival,
-			Departure:   departure,
+
+	var mu sync.Mutex
+	var ff []airline.Fare
+	grp, grpCtx := errgroup.WithContext(ctx)
+	grp.SetLimit(8)
+	for _, dest := range destinations {
+		dest := dest
+		grp.Go(func() error {
+			sr, _, err := co.Client.Get(grpCtx, strings.NewReplacer(
+				"{{origin}}", origin,
+				"{{destination}}", dest,
+				"{{currency}}", currency,
+				"{{departDate}}", departDate.Format("2006-01-02"),
+			).Replace(faresURL))
+			if err != nil {
+				return err
+			}
+			var fares struct {
+				Outbound struct {
+					Fares []Fare `json:"fares"`
+				} `json:"outbound"`
+			}
+			var buf strings.Builder
+			io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
+			if logger.Enabled(ctx, slog.LevelDebug) {
+				logger.Debug(buf.String())
+			}
+			err = json.NewDecoder(sr).Decode(&fares)
+			for _, f := range fares.Outbound.Fares {
+				if f.Unavailable || f.SoldOut || f.Departure == "" {
+					continue
+				}
+				const timePat = "2006-01-02T15:04:05"
+				arrival, err := time.ParseInLocation(timePat, f.Arrival, destTZs[dest])
+				if err != nil {
+					return err
+				}
+				departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
+				if err != nil {
+					return err
+				}
+				mu.Lock()
+				ff = append(ff, airline.Fare{
+					Airline:     airlineName,
+					Source:      sourceName,
+					Origin:      origin,
+					Destination: dest,
+					Day:         f.Day,
+					Price:       f.Price.Value,
+					Currency:    f.Price.Currency,
+					Arrival:     arrival,
+					Departure:   departure,
+				})
+				mu.Unlock()
+			}
+			return nil
 		})
 	}
-	return ff, err
+	return ff, nil
 }
 
 type Fare struct {
@@ -220,9 +265,9 @@ type Fare struct {
 	Unavailable bool   `json:"unavailable"`
 }
 type Price struct {
-	Value               float64 `json:"value"`
 	ValueMainUnit       string  `json:"valueMainUnit"`
 	ValueFractionalUnit string  `json:"valueFractionalUnit"`
 	Currency            string  `json:"currencyCode"`
 	Symbol              string  `json:"currencySymbol"`
+	Value               float64 `json:"value"`
 }
