@@ -16,7 +16,6 @@ import (
 
 	"github.com/krisukox/google-flights-api/flights"
 	"github.com/tgulacsi/fly/airline"
-	"github.com/tgulacsi/fly/iata"
 )
 
 //go:generate go run ./gen.go && go fmt
@@ -42,7 +41,7 @@ func (G GFlights) Fares(ctx context.Context, origin, destination string, departu
 	if err != nil {
 		return nil, err
 	}
-	originCity, _ := iata.Get(origin)
+	originCity := cities[origin]
 	var destCities []string
 	if destination != "" {
 		destCities = append(destCities, cities[destination])
@@ -70,7 +69,7 @@ func (G GFlights) Fares(ctx context.Context, origin, destination string, departu
 				flights.Args{
 					Date:       departure,
 					ReturnDate: departure.AddDate(0, 0, 37),
-					SrcCities:  []string{originCity.Municipality},
+					SrcCities:  []string{originCity},
 					DstCities:  cities,
 					Options: flights.Options{
 						Travelers: flights.Travelers{Adults: 1},

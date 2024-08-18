@@ -83,7 +83,11 @@ func (l *lookup) init() {
 		}
 	})
 }
-func (l *lookup) Get(nameOrCode string) (Airport, bool) {
+func (l *lookup) Get(nameOrCode string) Airport {
+	a, _ := l.Get2(nameOrCode)
+	return a
+}
+func (l *lookup) Get2(nameOrCode string) (Airport, bool) {
 	l.init()
 	if a, ok := l.m[nameOrCode]; ok {
 		return a, ok
@@ -109,5 +113,6 @@ func (l *lookup) Codes(onlyLarge bool) []string {
 	return keys
 }
 
-func Get(iataCode string) (Airport, bool) { return airports.Get(iataCode) }
-func Codes(onlyLarge bool) []string       { return airports.Codes(onlyLarge) }
+func Get(iataCode string) Airport          { return airports.Get(iataCode) }
+func Get2(iataCode string) (Airport, bool) { return airports.Get2(iataCode) }
+func Codes(onlyLarge bool) []string        { return airports.Codes(onlyLarge) }

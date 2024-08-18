@@ -147,9 +147,7 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		return err
 	}
 
-	a, _ := iata.Get(origin)
-	originTZ, _ := time.LoadLocation(a.TimeZone)
-	a, _ = iata.Get(destination)
+	originTZ, _ := time.LoadLocation(iata.Get(origin).TimeZone)
 	if originTZ == nil {
 		getAirports()
 		for _, a := range airports {
@@ -173,7 +171,7 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 	var destinations []string
 	if destination != "" {
 		destinations = []string{destination}
-		if a, ok := iata.Get(destination); ok {
+		if a, ok := iata.Get2(destination); ok {
 			destTZs[a.IATACode], _ = time.LoadLocation(a.TimeZone)
 		} else {
 			if err := getAirports(); err != nil {

@@ -200,8 +200,7 @@ type faresReq struct {
 
 func (co Wizzair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	logger := airline.CtxLogger(ctx)
-	a, _ := iata.Get(origin)
-	originTZ, _ := time.LoadLocation(a.TimeZone)
+	originTZ, _ := time.LoadLocation(iata.Get(origin).TimeZone)
 	months := 6
 	now := time.Now()
 	for now.AddDate(0, months, 0).Before(departDate) {

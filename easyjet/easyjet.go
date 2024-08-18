@@ -37,8 +37,8 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Ai
 			if _, suffix, found := strings.Cut(a.Val, "/cheap-flights/"); found {
 				if from, to, found := strings.Cut(suffix, "/"); found {
 					logger.Debug("search", "from", from, "origin", origin, "to", to)
-					if f, ok := iata.Get(from); ok && f.IATACode == origin {
-						if t, ok := iata.Get(to); ok {
+					if f, ok := iata.Get2(from); ok && f.IATACode == origin {
+						if t, ok := iata.Get2(to); ok {
 							destinations = append(destinations, airline.Airport{Code: t.IATACode})
 						}
 					}

@@ -20,6 +20,7 @@ import (
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/easyjet"
 	"github.com/tgulacsi/fly/gflights"
+	"github.com/tgulacsi/fly/iata"
 	"github.com/tgulacsi/fly/ryanair"
 	"github.com/tgulacsi/fly/wizzair"
 )
@@ -61,9 +62,11 @@ func Main() error {
 		},
 	}
 	currency := "EUR"
+	var under float64
 	FS = flag.NewFlagSet("fares", flag.ContinueOnError)
 	FS.StringVar(&currency, "currency", currency, "currency")
 	FS.StringVar(&origin, "origin", origin, "origin")
+	FS.Float64Var(&under, "under", 50, "list only under this price")
 	faresCmd := ffcli.Command{Name: "fares", FlagSet: FS,
 		Exec: func(ctx context.Context, args []string) error {
 			if len(args) < 1 {
@@ -133,16 +136,34 @@ func Main() error {
 				return err
 			}
 			slices.SortStableFunc(fares, cmpFare)
-			fmt.Println()
+			var min float64
+			var found bool
 			for _, f := range slices.Compact(fares) {
 				if f.Currency != currency {
 					slog.Warn("currency mismatch", "wanted", currency, "got", f)
 				}
+				if f.Price > under {
+					if min < under || min > f.Price {
+						min = f.Price
+					}
+					continue
+				}
 				if f.Destination == "" {
 					slog.Warn("no destination", "got", f)
 				}
-				fmt.Printf("% 3.2f\t%s\t%s\t%s\n",
-					f.Price, f.Day, f.Destination, f.Airline)
+				dest := iata.Get(f.Destination)
+				fmt.Printf("% 3.2f\t%s\t%s (%s, %s)\t%s\n",
+					f.Price, f.Day,
+					f.Destination, dest.Country, dest.Municipality,
+					f.Airline)
+				found = true
+			}
+			if !found {
+				if min > 0 {
+					slog.Warn("No flight found", "under", under, "min", min)
+				} else {
+					slog.Warn("No flight found.")
+				}
 			}
 			return err
 		},
