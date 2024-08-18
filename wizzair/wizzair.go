@@ -12,10 +12,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
 	"time"
+
+	"github.com/asvvvad/exchange"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
@@ -210,13 +213,17 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 		if err != nil {
 			return ff, err
 		}
+		price, err := f.RegularPrice.ConvertTo("EUR")
+		if err != nil {
+			return ff, err
+		}
 		ff = append(ff, airline.Fare{
 			Airline:     airlineName,
 			Source:      sourceName,
 			Origin:      f.Origin,
 			Destination: f.Destination,
-			Price:       f.RegularPrice.Value,
-			Currency:    f.RegularPrice.Currency,
+			Price:       price.Value,
+			Currency:    price.Currency,
 			Departure:   departure,
 		})
 	}
@@ -240,4 +247,16 @@ type Fare struct {
 type Price struct {
 	Value    float64 `json:"amount"`
 	Currency string  `json:"currencyCode"`
+}
+
+func (p Price) ConvertTo(currency string) (Price, error) {
+	bf, err := exchange.New(p.Currency).ConvertTo(currency, int(p.Value*100.0))
+	if err != nil {
+		return p, err
+	}
+	f, _ := bf.Mul(bf, big.NewFloat(1.0/100.0)).Float64()
+	return Price{
+		Currency: currency,
+		Value:    f,
+	}, nil
 }
