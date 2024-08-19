@@ -51,7 +51,7 @@ func Main() error {
 		return err
 	}
 	airlines := []airline.Airline{rar, ej, wz, G}
-	airlines = airlines[2:3]
+	// airlines = airlines[2:3]
 
 	origin := "BUD"
 	FS := flag.NewFlagSet("destinations", flag.ContinueOnError)
