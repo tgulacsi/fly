@@ -217,6 +217,7 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 					continue
 				}
 				const timePat = "2006-01-02T15:04:05"
+				// slog.Info("fares", "dest", dest, "a", iata.Get(dest))
 				arrival, err := time.ParseInLocation(timePat, f.Arrival, iata.Get(dest).Location)
 				if err != nil {
 					return err

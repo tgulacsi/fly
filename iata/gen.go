@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -20,13 +19,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/flatbuffers/go"
+	"github.com/alecthomas/mph"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/google/renameio/v2"
-	"github.com/remerge/chd"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
-	"github.com/tgulacsi/fly/iata/fbs"
 )
 
 func main() {
@@ -61,6 +59,9 @@ func Main() error {
 	m := make(map[string]mapping, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
 		nm := f.Tag.Get("csv")
 		if nm == "-" {
 			continue
@@ -82,31 +83,14 @@ func Main() error {
 		}
 	}
 	log.Println("mapping:", m)
-	fh, err := renameio.NewPendingFile("codes.go")
+
+	em,err := cbor.PreferredUnsortedEncOptions().EncMode()
 	if err != nil {
 		return err
 	}
-	defer fh.Cleanup()
 
-	fb := flatbuffers.NewBuilder(0)
-	cb := chd.NewBuilder(nil)
+	cb := mph.Builder()
 
-	bw := bufio.NewWriter(fh)
-	bw.WriteString(`package iata
-// GENERATED
-
-func init() {
-	airports = lookup{m: map[string]Airport{
-`)
-	constants := make(map[string]string)
-	makeConst := func(s string) string {
-		if k, ok := constants[s]; ok {
-			return k
-		}
-		k := fmt.Sprintf("c%04d", len(constants))
-		constants[s] = k
-		return k
-	}
 	printTimer := time.NewTicker(10 * time.Second)
 	for {
 		row, err := cr.Read()
@@ -153,100 +137,42 @@ func init() {
 			return err
 		}
 		v.TimeZone = tz.TimeZone
-		fmt.Fprintf(bw, `%q: {
-			ID: %q, Ident: %q, Type: %s,
-			Continent: %s, Country: %s, Region: %s, 
-			Municipality: %q,
-			GPSCode: %q, IATACode: %q, LocalCode: %q, 
-			Home: %q, Wikipedia: %q, 
-			TimeZone: %s,
-			Lat: %v, Lon: %v,
-		},
-		`,
-			v.IATACode,
-			v.ID, v.Ident, makeConst(v.Type),
-			makeConst(v.Continent), makeConst(v.Country), makeConst(v.Region),
-			v.Municipality,
-			v.GPSCode, v.IATACode, v.LocalCode,
-			v.Home, v.Wikipedia,
-			makeConst(v.TimeZone),
-			v.Lat, v.Lon,
-		)
 
-		fb.Reset()
-		sID := fb.CreateString(v.ID)
-		sIdent := fb.CreateString(v.Ident)
-		sName := fb.CreateString(v.Name)
-		sContinent := fb.CreateString(v.Continent)
-		sCountry := fb.CreateString(v.Country)
-		sRegion := fb.CreateString(v.Region)
-		sMunicipality := fb.CreateString(v.Municipality)
-		sGPSCode := fb.CreateString(v.GPSCode)
-		sIATACode := fb.CreateString(v.IATACode)
-		sLocalCode := fb.CreateString(v.LocalCode)
-		sHome := fb.CreateString(v.Home)
-		sWikipedia := fb.CreateString(v.Wikipedia)
-		sTimeZone := fb.CreateString(v.TimeZone)
-		fbs.AirportStart(fb)
-		fbs.AirportAddId(fb, sID)
-		fbs.AirportAddIdent(fb, sIdent)
-		fbs.AirportAddType(fb, fbs.EnumValuesType[v.Type])
-		fbs.AirportAddName(fb, sName)
-		fbs.AirportAddContinent(fb, sContinent)
-		fbs.AirportAddCountry(fb, sCountry)
-		fbs.AirportAddRegion(fb, sRegion)
-		fbs.AirportAddMunicipality(fb, sMunicipality)
-		fbs.AirportAddGpsCode(fb, sGPSCode)
-		fbs.AirportAddIataCode(fb, sIATACode)
-		fbs.AirportAddLocalCode(fb, sLocalCode)
-		fbs.AirportAddHome(fb, sHome)
-		fbs.AirportAddWikipedia(fb, sWikipedia)
-		fbs.AirportAddTimeZone(fb, sTimeZone)
-		fbs.AirportAddLat(fb, v.Lat)
-		fbs.AirportAddLon(fb, v.Lon)
-		fb.Finish(fbs.AirportEnd(fb))
+b, err := em.Marshal(v)
+if err != nil { 
+			return fmt.Errorf("marshal %#v: %w", v, err)
+		}
 
-		cb.Add([]byte(v.IATACode), fb.FinishedBytes())
+		cb.Add([]byte(v.IATACode), b)
 	}
-	bw.WriteString(`
-	}}
-}
-
-const (
-`)
-	for s, k := range constants {
-		fmt.Fprintf(bw, "\t%s = %q\n", k, s)
-	}
-	bw.WriteString(`
-)
-`)
 
 	// Build the map
 	cm, err := cb.Build()
 	if err != nil {
-		return err
+		return fmt.Errorf("build map: %w" ,err)
+	}
+	// Double check
+	for it := cm.Iterate(); it != nil; it=it.Next() {
+		k, v := it.Get()
+		// log.Println(string(k))
+		var x iata.Airport
+		if err := cbor.Unmarshal(v, &x); err != nil {
+			return fmt.Errorf("unmarshal [%q]%q: %w", k, v, err)
+		}
+		if x.IATACode != string(k) {
+			return fmt.Errorf("wanted %q, got %q (%#v)", string(k), 
+				x.IATACode, x)
+		}
 	}
 
 	// Serialize the map
-	{
-		fh, err := renameio.NewPendingFile("codes.dat")
-		if err != nil {
-			return err
-		}
-		defer fh.Cleanup()
-		if n, err := cm.WriteTo(fh); err != nil {
-			return err
-		} else {
-			log.Printf("dat: %d", n)
-		}
-		fh.CloseAtomicallyReplace()
+	fh, err := renameio.NewPendingFile("codes.dat")
+	if err != nil {
+		return fmt.Errorf("create codes.dat: %w", err)
 	}
-
-	// Afterwards, you can deserialize it
-	// r, _ := os.Open("mymap.dat")
-	// nm := chd.NewMap()
-	// nm.Read(r)
-
-	bw.Flush()
+	defer fh.Cleanup()
+	if err := cm.Write(fh); err != nil {
+		return fmt.Errorf("write codes.dat: %w", err)
+	}
 	return fh.CloseAtomicallyReplace()
 }
