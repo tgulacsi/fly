@@ -18,13 +18,11 @@ require (
 )
 
 require (
-	github.com/alecthomas/mph v0.0.0-20240203124041-914cee2d9284 // indirect
 	github.com/alecthomas/unsafeslice v0.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/anyascii/go v0.3.2 // indirect
 	github.com/browserutils/kooky v0.2.1-0.20240119192416-d4f81abd0200 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
-	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.4 // indirect
@@ -35,7 +33,6 @@ require (
 	github.com/rogpeppe/retry v0.1.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/quicktemplate v1.7.0 // indirect
-	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/exp v0.0.0-20240314144324-c7f7c6466f7f // indirect
 	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
