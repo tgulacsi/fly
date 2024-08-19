@@ -12,14 +12,11 @@ import (
 	"unicode"
 )
 
-//go:generate flatc --go --go-namespace fbs iata.fbs
 //go:generate go run ./gen.go
 //go:generate go fmt
 
 // "id","ident","type","name","latitude_deg","longitude_deg","elevation_ft","continent","iso_country","iso_region","municipality","scheduled_service","gps_code","iata_code","local_code","home_link","wikipedia_link","keywords"
 // 4296,"LHBP","large_airport","Budapest Liszt Ferenc International Airport",47.43018,19.262393,495,"EU","HU","HU-BU","Budapest","yes","LHBP","BUD",,"http://www.bud.hu/english","https://en.wikipedia.org/wiki/Budapest_Ferenc_Liszt_International_Airport","Ferihegyi nemzetközi repülőtér, Budapest Liszt Ferenc international Airport"
-
-// TODO[tgulacsi]: try FlatBuffers
 
 type lookup struct {
 	m        map[string]Airport

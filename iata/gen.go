@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -15,16 +16,15 @@ import (
 	"io"
 	"log"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/flatbuffers/go"
 	"github.com/google/renameio/v2"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
-	"github.com/tgulacsi/fly/iata/fbs"
 )
 
 func main() {
@@ -80,14 +80,27 @@ func Main() error {
 		}
 	}
 	log.Println("mapping:", m)
-
-	fb := flatbuffers.NewBuilder(0)
-	fh, err := renameio.NewPendingFile("codes.dat")
+	fh, err := renameio.NewPendingFile("codes.go")
 	if err != nil {
 		return err
 	}
 	defer fh.Cleanup()
+	bw := bufio.NewWriter(fh)
+	bw.WriteString(`package iata
+// GENERATED
 
+func init() {
+	airports = lookup{m: map[string]Airport{
+`)
+	constants := make(map[string]string)
+	makeConst := func(s string) string {
+		if k, ok := constants[s]; ok {
+			return k
+		}
+		k := fmt.Sprintf("c%04d", len(constants))
+		constants[s] = k
+		return k
+	}
 	printTimer := time.NewTicker(10 * time.Second)
 	for {
 		row, err := cr.Read()
@@ -97,19 +110,19 @@ func Main() error {
 			}
 			return err
 		}
-		var v iata.Airport
-		rv := reflect.ValueOf(&v)
+		a := reflect.ValueOf(&iata.Airport{})
 		for _, f := range m {
 			if f.Convert == nil {
-				rv.Elem().Field(f.Field).SetString(row[f.Column])
+				a.Elem().Field(f.Field).SetString(row[f.Column])
 			} else {
 				x, err := f.Convert(row[f.Column])
 				if err != nil {
 					return fmt.Errorf("convert %q: %w", row[f.Column], err)
 				}
-				rv.Elem().Field(f.Field).Set(reflect.ValueOf(x))
+				a.Elem().Field(f.Field).Set(reflect.ValueOf(x))
 			}
 		}
+		v := a.Elem().Interface().(iata.Airport)
 		if v.IATACode == "" {
 			continue
 		}
@@ -134,44 +147,43 @@ func Main() error {
 			return err
 		}
 		v.TimeZone = tz.TimeZone
-
-		fb.Reset()
-		sID := fb.CreateString(v.ID)
-		sIdent := fb.CreateString(v.Ident)
-		sName := fb.CreateString(v.Name)
-		sContinent := fb.CreateString(v.Continent)
-		sCountry := fb.CreateString(v.Country)
-		sRegion := fb.CreateString(v.Region)
-		sMunicipality := fb.CreateString(v.Municipality)
-		sGPSCode := fb.CreateString(v.GPSCode)
-		sIATACode := fb.CreateString(v.IATACode)
-		sLocalCode := fb.CreateString(v.LocalCode)
-		sHome := fb.CreateString(v.Home)
-		sWikipedia := fb.CreateString(v.Wikipedia)
-		sTimeZone := fb.CreateString(v.TimeZone)
-		fbs.AirportStart(fb)
-		fbs.AirportAddId(fb, sID)
-		fbs.AirportAddIdent(fb, sIdent)
-		fbs.AirportAddType(fb, fbs.EnumValuesType[v.Type])
-		fbs.AirportAddName(fb, sName)
-		fbs.AirportAddContinent(fb, sContinent)
-		fbs.AirportAddCountry(fb, sCountry)
-		fbs.AirportAddRegion(fb, sRegion)
-		fbs.AirportAddMunicipality(fb, sMunicipality)
-		fbs.AirportAddGpsCode(fb, sGPSCode)
-		fbs.AirportAddIataCode(fb, sIATACode)
-		fbs.AirportAddLocalCode(fb, sLocalCode)
-		fbs.AirportAddHome(fb, sHome)
-		fbs.AirportAddWikipedia(fb, sWikipedia)
-		fbs.AirportAddTimeZone(fb, sTimeZone)
-		fbs.AirportAddLat(fb, v.Lat)
-		fbs.AirportAddLon(fb, v.Lon)
-		fb.FinishSizePrefixed(fbs.AirportEnd(fb))
-
-		if _, err := fh.Write(fb.FinishedBytes()); err != nil {
-			return err
-		}
+		fmt.Fprintf(bw, `%q: {
+			ID: %q, Ident: %q, Type: %s,
+			Continent: %s, Country: %s, 
+			Region: %q,  Municipality: %q,
+			GPSCode: %q, IATACode: %q, LocalCode: %q, 
+			Home: %q, Wikipedia: %q, 
+			TimeZone: %s,
+			Lat: %v, Lon: %v,
+		},
+		`,
+			v.IATACode,
+			v.ID, v.Ident, makeConst(v.Type),
+			makeConst(v.Continent), makeConst(v.Country),
+			v.Region, v.Municipality,
+			v.GPSCode, v.IATACode, v.LocalCode,
+			v.Home, v.Wikipedia,
+			makeConst(v.TimeZone),
+			v.Lat, v.Lon,
+		)
 	}
+	bw.WriteString(`
+	}}
+}
 
+const (
+`)
+	keys := make([]string, 0, len(constants))
+	for s := range constants {
+		keys = append(keys, s)
+	}
+	slices.Sort(keys)
+	for _, s := range keys {
+		fmt.Fprintf(bw, "\t%s = %q\n", constants[s], s)
+	}
+	bw.WriteString(`
+)
+`)
+	bw.Flush()
 	return fh.CloseAtomicallyReplace()
 }

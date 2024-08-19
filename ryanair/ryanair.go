@@ -211,7 +211,9 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 			if logger.Enabled(ctx, slog.LevelDebug) {
 				logger.Debug(buf.String())
 			}
-			err = json.NewDecoder(sr).Decode(&fares)
+			if err = json.NewDecoder(sr).Decode(&fares); err != nil {
+				return err
+			}
 			for _, f := range fares.Outbound.Fares {
 				if f.Unavailable || f.SoldOut || f.Departure == "" {
 					continue
