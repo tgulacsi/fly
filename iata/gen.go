@@ -20,10 +20,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/flatbuffers/go"
 	"github.com/google/renameio/v2"
-	// "github.com/kr/pretty"
+	"github.com/remerge/chd"
+
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
+	"github.com/tgulacsi/fly/iata/fbs"
 )
 
 func main() {
@@ -84,6 +87,10 @@ func Main() error {
 		return err
 	}
 	defer fh.Cleanup()
+
+	fb := flatbuffers.NewBuilder(0)
+	cb := chd.NewBuilder(nil)
+
 	bw := bufio.NewWriter(fh)
 	bw.WriteString(`package iata
 // GENERATED
@@ -109,19 +116,19 @@ func init() {
 			}
 			return err
 		}
-		a := reflect.ValueOf(&iata.Airport{})
+		var v iata.Airport
+		rv := reflect.ValueOf(&v)
 		for _, f := range m {
 			if f.Convert == nil {
-				a.Elem().Field(f.Field).SetString(row[f.Column])
+				rv.Elem().Field(f.Field).SetString(row[f.Column])
 			} else {
 				x, err := f.Convert(row[f.Column])
 				if err != nil {
 					return fmt.Errorf("convert %q: %w", row[f.Column], err)
 				}
-				a.Elem().Field(f.Field).Set(reflect.ValueOf(x))
+				rv.Elem().Field(f.Field).Set(reflect.ValueOf(x))
 			}
 		}
-		v := a.Elem().Interface().(iata.Airport)
 		if v.IATACode == "" {
 			continue
 		}
@@ -165,6 +172,41 @@ func init() {
 			makeConst(v.TimeZone),
 			v.Lat, v.Lon,
 		)
+
+		fb.Reset()
+		sID := fb.CreateString(v.ID)
+		sIdent := fb.CreateString(v.Ident)
+		sName := fb.CreateString(v.Name)
+		sContinent := fb.CreateString(v.Continent)
+		sCountry := fb.CreateString(v.Country)
+		sRegion := fb.CreateString(v.Region)
+		sMunicipality := fb.CreateString(v.Municipality)
+		sGPSCode := fb.CreateString(v.GPSCode)
+		sIATACode := fb.CreateString(v.IATACode)
+		sLocalCode := fb.CreateString(v.LocalCode)
+		sHome := fb.CreateString(v.Home)
+		sWikipedia := fb.CreateString(v.Wikipedia)
+		sTimeZone := fb.CreateString(v.TimeZone)
+		fbs.AirportStart(fb)
+		fbs.AirportAddId(fb, sID)
+		fbs.AirportAddIdent(fb, sIdent)
+		fbs.AirportAddType(fb, fbs.EnumValuesType[v.Type])
+		fbs.AirportAddName(fb, sName)
+		fbs.AirportAddContinent(fb, sContinent)
+		fbs.AirportAddCountry(fb, sCountry)
+		fbs.AirportAddRegion(fb, sRegion)
+		fbs.AirportAddMunicipality(fb, sMunicipality)
+		fbs.AirportAddGpsCode(fb, sGPSCode)
+		fbs.AirportAddIataCode(fb, sIATACode)
+		fbs.AirportAddLocalCode(fb, sLocalCode)
+		fbs.AirportAddHome(fb, sHome)
+		fbs.AirportAddWikipedia(fb, sWikipedia)
+		fbs.AirportAddTimeZone(fb, sTimeZone)
+		fbs.AirportAddLat(fb, v.Lat)
+		fbs.AirportAddLon(fb, v.Lon)
+		fb.Finish(fbs.AirportEnd(fb))
+
+		cb.Add([]byte(v.IATACode), fb.FinishedBytes())
 	}
 	bw.WriteString(`
 	}}
@@ -178,6 +220,33 @@ const (
 	bw.WriteString(`
 )
 `)
+
+	// Build the map
+	cm, err := cb.Build()
+	if err != nil {
+		return err
+	}
+
+	// Serialize the map
+	{
+		fh, err := renameio.NewPendingFile("codes.dat")
+		if err != nil {
+			return err
+		}
+		defer fh.Cleanup()
+		if n, err := cm.WriteTo(fh); err != nil {
+			return err
+		} else {
+			log.Printf("dat: %d", n)
+		}
+		fh.CloseAtomicallyReplace()
+	}
+
+	// Afterwards, you can deserialize it
+	// r, _ := os.Open("mymap.dat")
+	// nm := chd.NewMap()
+	// nm.Read(r)
+
 	bw.Flush()
 	return fh.CloseAtomicallyReplace()
 }

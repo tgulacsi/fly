@@ -12,6 +12,7 @@ import (
 	"unicode"
 )
 
+//go:generate flatc --go --go-namespace fbs iata.fbs
 //go:generate go run ./gen.go
 //go:generate go fmt
 

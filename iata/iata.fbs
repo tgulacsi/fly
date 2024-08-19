@@ -1,0 +1,53 @@
+namespace iata;
+
+enum Type:ubyte {
+	unknown = 0,
+	balloonport = 66, //'B',
+	seaplane_base = 83, //'S',
+	large_airport = 108, //'l',
+	medium_airport = 109, //'m',
+	heliport = 72, //'H',
+	closed = 67, //'C',
+	small_airport = 115 //'s'
+}
+
+/*
+type Airport struct {
+	Location              *time.Location `csv:"-"`
+	ID, Ident, Type, Name string
+	Continent             string
+	Country               string `csv:"iso_country"`
+	Region                string `csv:"iso_region"`
+	Municipality          string
+	GPSCode               string `csv:"gps_code"`
+	IATACode              string `csv:"iata_code"`
+	LocalCode             string `csv:"local_code"`
+	Home                  string `csv:"home_link"`
+	Wikipedia             string `csv:"wikipedia_link"`
+	TimeZone              string
+	Lat                   float64 `csv:"latitude_deg"`
+	Lon                   float64 `csv:"longitude_deg"`
+}
+*/
+
+table Airport {
+  id:string;
+  ident:string;
+  type:Type;
+  name:string;
+  continent:string;
+  country:string;
+  region:string;
+  municipality:string;
+  gps_code:string;
+  iata_code:string;
+  local_code:string;
+  home:string;
+  wikipedia:string;
+  time_zone:string;
+  lat:double;
+  lon:double;
+}
+
+root_type Airport;
+

@@ -6,9 +6,11 @@ require (
 	github.com/PuerkitoBio/goquery v1.9.2
 	github.com/cockroachdb/apd/v3 v3.1.0
 	github.com/cozy/httpcache v0.0.0-20210224123405-3f334f841945
+	github.com/google/flatbuffers v23.1.21+incompatible
 	github.com/google/renameio/v2 v2.0.0
 	github.com/krisukox/google-flights-api v0.0.0-20240601103123-d8fbf0e941cd
 	github.com/peterbourgon/ff/v3 v3.4.0
+	github.com/remerge/chd v0.0.0-20231129170501-9dfedd7b8bbf
 	github.com/tgulacsi/go v0.27.5
 	github.com/tgulacsi/mnbarf v0.5.1
 	golang.org/x/sync v0.6.0
@@ -16,6 +18,7 @@ require (
 )
 
 require (
+	github.com/alecthomas/unsafeslice v0.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/anyascii/go v0.3.2 // indirect
 	github.com/browserutils/kooky v0.2.1-0.20240119192416-d4f81abd0200 // indirect
@@ -26,6 +29,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/remerge/go-xorshift v0.0.0-20231129160643-2db0e285f2b3 // indirect
 	github.com/rogpeppe/retry v0.1.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/quicktemplate v1.7.0 // indirect
