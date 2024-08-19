@@ -82,14 +82,15 @@ func (c HTTPClient) Post(ctx context.Context, URL string, body io.Reader) (*io.S
 func (c HTTPClient) do(req *http.Request) (*io.SectionReader, *http.Response, error) {
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", err, req.Header)
+		return nil, nil, fmt.Errorf("%s %s: %w: %v", req.Method, req.URL, err, req.Header)
 	}
 	sr, err := iohlp.MakeSectionReader(resp.Body, 1<<20)
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		var buf strings.Builder
 		io.Copy(&buf, sr)
-		return nil, resp, fmt.Errorf("%s: %s: %s (%s)", resp.Status, buf.String(), req.Header, resp.Header)
+		return nil, resp, fmt.Errorf("%s %s: %s: %s: %s (%s)",
+			req.Method, req.URL, resp.Status, buf.String(), req.Header, resp.Header)
 	}
 	CtxLogger(req.Context()).Debug("request", "body", req.Header, "response", resp.Header)
 	return sr, resp, err

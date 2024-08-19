@@ -1,3 +1,7 @@
+// Copyright 2024 Tamás Gulácsi. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -37,7 +41,7 @@ func Main() error {
 	ctx = airline.WithLogger(ctx, slog.Default())
 
 	rar := ryanair.Ryanair{Client: airline.NewClient(nil, false)}
-	ej := easyjet.EasyJet{Client: airline.NewClient(nil, false)}
+	ej := easyjet.EasyJet{Client: airline.NewClient(nil, true)}
 	wz, err := wizzair.New(ctx, nil)
 	if err != nil {
 		return err
@@ -47,7 +51,7 @@ func Main() error {
 		return err
 	}
 	airlines := []airline.Airline{rar, ej, wz, G}
-	// airlines = airlines[3:]
+	airlines = airlines[2:3]
 
 	origin := "BUD"
 	FS := flag.NewFlagSet("destinations", flag.ContinueOnError)

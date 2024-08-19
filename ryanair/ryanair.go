@@ -147,7 +147,7 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		return err
 	}
 
-	originTZ, _ := time.LoadLocation(iata.Get(origin).TimeZone)
+	originTZ := iata.Get(origin).Location
 	if originTZ == nil {
 		getAirports()
 		for _, a := range airports {
@@ -167,20 +167,12 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		}
 	}
 
-	destTZs := make(map[string]*time.Location)
 	var destinations []string
 	if destination != "" {
 		destinations = []string{destination}
-		if a, ok := iata.Get2(destination); ok {
-			destTZs[a.IATACode], _ = time.LoadLocation(a.TimeZone)
-		} else {
+		if _, ok := iata.Get2(destination); !ok {
 			if err := getAirports(); err != nil {
 				return nil, err
-			}
-			for _, a := range airports {
-				if a.Code == destination {
-					destTZs[a.Code], _ = time.LoadLocation(a.TimeZone)
-				}
 			}
 		}
 	} else {
@@ -190,7 +182,6 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		destinations = make([]string, len(airports))
 		for i, a := range airports {
 			destinations[i] = a.Code
-			destTZs[a.Code], _ = time.LoadLocation(a.TimeZone)
 		}
 	}
 
@@ -226,7 +217,7 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 					continue
 				}
 				const timePat = "2006-01-02T15:04:05"
-				arrival, err := time.ParseInLocation(timePat, f.Arrival, destTZs[dest])
+				arrival, err := time.ParseInLocation(timePat, f.Arrival, iata.Get(dest).Location)
 				if err != nil {
 					return err
 				}

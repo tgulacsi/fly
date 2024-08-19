@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -28,6 +29,7 @@ type lookup struct {
 var airports lookup
 
 type Airport struct {
+	Location              *time.Location `csv:"-"`
 	ID, Ident, Type, Name string
 	Continent             string
 	Country               string `csv:"iso_country"`
@@ -48,6 +50,11 @@ func (l *lookup) init() {
 		l.nameCode = make(map[string]string, len(l.m))
 		var buf strings.Builder
 		for k, v := range l.m {
+			if v.Location == nil {
+				v.Location, _ = time.LoadLocation(v.TimeZone)
+				l.m[k] = v
+			}
+
 			buf.Reset()
 			for _, f := range strings.Fields(strings.ToLower(v.Name)) {
 				if f == "international" || f == "air" || strings.Contains(f, "airport") || strings.HasSuffix(f, ".") {

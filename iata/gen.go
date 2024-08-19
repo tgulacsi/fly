@@ -59,6 +59,9 @@ func Main() error {
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
 		nm := f.Tag.Get("csv")
+		if nm == "-" {
+			continue
+		}
 		if nm == "" {
 			nm = f.Name
 		}
