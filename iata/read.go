@@ -6,10 +6,10 @@ package iata
 
 import (
 	_ "embed"
+	// "log"
 	"time"
-	"log"
 
-	"github.com/remerge/chd"
+	"github.com/google/flatbuffers/go"
 	"github.com/tgulacsi/fly/iata/fbs"
 )
 
@@ -20,15 +20,14 @@ func init() {
 	if len(serialized) == 0 {
 		return
 	}
-	m := chd.NewMap()
-	if _, err := m.Read(serialized); err != nil {
-		panic(err)
-	}
-	airports.m = make(map[string]Airport, m.Len())
-	start := time.Now()
-	m.Values(func(p []byte) bool {
-		a := fbs.GetRootAsAirport(p, 0)
-		log.Println("a:", a)
+	airports.m = make(map[string]Airport, 10000)
+	// start := time.Now()
+	for rest := serialized; len(rest) > 0; {
+		size := flatbuffers.GetSizePrefix(rest, 0)
+		a := fbs.GetSizePrefixedRootAsAirport(rest[:4+size], 0)
+		rest = rest[4+size:]
+
+		// log.Println("a:", a)
 		tz := string(a.TimeZone())
 		loc, _ := time.LoadLocation(tz)
 		airports.m[string(a.IataCode())] = Airport{
@@ -50,7 +49,6 @@ func init() {
 			Lat:          a.Lat(),
 			Lon:          a.Lon(),
 		}
-		return true
-	})
-	log.Println("deserialization: %s (%d)", time.Since(start), len(airports.m))
+	}
+	// log.Printf("deserialization: %s (%d)", time.Since(start), len(airports.m))
 }

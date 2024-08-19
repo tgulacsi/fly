@@ -18,6 +18,7 @@ require (
 )
 
 require (
+	github.com/alecthomas/mph v0.0.0-20240203124041-914cee2d9284 // indirect
 	github.com/alecthomas/unsafeslice v0.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/anyascii/go v0.3.2 // indirect
