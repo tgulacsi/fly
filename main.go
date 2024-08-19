@@ -156,10 +156,10 @@ func Main() error {
 					slog.Warn("no destination", "got", f)
 				}
 				dest := iata.Get(f.Destination)
-				fmt.Printf("% 3.2f\t%s\t%s (%s, %s)\t%s\n",
+				fmt.Printf("% 3.2f\t%s\t%s (%s, %s)\t%s[%s]\n",
 					f.Price, f.Day,
 					f.Destination, dest.Country, dest.Municipality,
-					f.Airline)
+					f.Airline, f.Source)
 				found = true
 			}
 			if !found {

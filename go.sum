@@ -6,6 +6,8 @@ github.com/Velocidex/ordereddict v0.0.0-20230909174157-2aa49cc5d11d h1:fn372EqKy
 github.com/Velocidex/ordereddict v0.0.0-20230909174157-2aa49cc5d11d/go.mod h1:+MqO5UMBemyFSm+yRXslbpFTwPUDhFHUf7HPV92twg4=
 github.com/Velocidex/yaml/v2 v2.2.8 h1:GUrSy4SBJ6RjGt43k6MeBKtw2z/27gh4A3hfFmFY3No=
 github.com/Velocidex/yaml/v2 v2.2.8/go.mod h1:PlXIg/Pxmoja48C1vMHo7C5pauAZvLq/UEPOQ3DsjS4=
+github.com/alecthomas/mph v0.0.0-20240203124041-914cee2d9284 h1:ARqaIEMUMGDut99bChWYVy28Qtowh2QsImSUaIIj2ls=
+github.com/alecthomas/mph v0.0.0-20240203124041-914cee2d9284/go.mod h1:hSgUOEvLZGgwxJ66IX3DU0aHI1izauY3Vc8BVglCn8s=
 github.com/alecthomas/unsafeslice v0.2.0 h1:iCDDpbohRZvgciXn5jkrpDCKv8fYu66+RivRhe6remQ=
 github.com/alecthomas/unsafeslice v0.2.0/go.mod h1:H7s9N0gAbfiwu02rQEexZbN/YMxm+2l3rVRa/zE2DM8=
 github.com/andybalholm/brotli v1.0.2/go.mod h1:loMXtMfwqflxFJPmdbJO0a3KNoPuLBgiu3qAvBg8x/Y=
