@@ -50,7 +50,10 @@ func Main() error {
 	if err != nil {
 		return err
 	}
-	airlines := []airline.Airline{rar, ej, wz, G}
+	airlines := map[string]airline.Airline{
+		"ryanair": rar, "easyjet": ej, "wizzair": wz,
+		"gflights": G,
+	}
 	// airlines = airlines[2:3]
 
 	origin := "BUD"
@@ -114,15 +117,29 @@ func Main() error {
 				return 0
 			}
 
+			type Stat struct {
+				Dur time.Duration
+				N   int
+			}
+			stats := make(map[string]Stat, len(airlines))
 			var mu sync.Mutex
 			var fares []airline.Fare
 			grp, grpCtx := errgroup.WithContext(ctx)
-			for _, f := range airlines {
+			for name, f := range airlines {
 				f := f
 				grp.Go(func() error {
-					local, err := f.Fares(grpCtx, origin, destination, departDate, currency)
+					var local []airline.Fare
+					start := time.Now()
+					if destination == "" {
+						local, err = airline.WithAllFares(f).
+							AllFares(grpCtx, origin, departDate, currency)
+					} else {
+						local, err = f.
+							Fares(grpCtx, origin, destination, departDate, currency)
+					}
+					dur := time.Since(start)
 					if err != nil {
-						err = fmt.Errorf("%T: %w", f, err)
+						err = fmt.Errorf("%s: %w", name, err)
 					}
 					slices.SortFunc(local, cmpFare)
 					for i, f := range local {
@@ -132,6 +149,7 @@ func Main() error {
 					}
 					mu.Lock()
 					fares = append(fares, local...)
+					stats[name] = Stat{Dur: dur, N: len(local)}
 					mu.Unlock()
 					return err
 				})
@@ -169,6 +187,7 @@ func Main() error {
 					slog.Warn("No flight found.")
 				}
 			}
+			slog.Info("statistics", "stats", stats)
 			return err
 		},
 	}

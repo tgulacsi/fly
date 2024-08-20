@@ -11,10 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/tgulacsi/fly/airline"
@@ -45,14 +42,14 @@ func (ej EasyJet) getRoutes(ctx context.Context) ([]route, error) {
 	return routes, err
 }
 
-func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
+func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]string, error) {
 	logger := airline.CtxLogger(ctx)
-	var destinations []airline.Airport
+	var destinations []string
 	routes, err := ej.getRoutes(ctx)
 	if err == nil {
 		for _, r := range routes {
 			if r.Origin == origin {
-				destinations = append(destinations, airline.Airport{Code: r.Destination})
+				destinations = append(destinations, r.Destination)
 			}
 		}
 		return destinations, nil
@@ -77,7 +74,7 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]airline.Ai
 					logger.Debug("search", "from", from, "origin", origin, "to", to)
 					if f, ok := iata.Get2(from); ok && f.IATACode == origin {
 						if t, ok := iata.Get2(to); ok {
-							destinations = append(destinations, airline.Airport{Code: t.IATACode})
+							destinations = append(destinations, t.IATACode)
 						}
 					}
 				}
@@ -96,68 +93,45 @@ const searchFaresURL = baseURL + "/searchfares/GetLowestDailyFares?departureAirp
 
 func (ej EasyJet) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	logger := airline.CtxLogger(ctx)
-	var destinations []string
-	if destination != "" {
-		destinations = []string{destination}
-	} else {
-		aa, err := ej.Destinations(ctx, origin)
-		if err != nil {
-			return nil, err
-		}
-		destinations = make([]string, len(aa))
-		for i, a := range aa {
-			destinations[i] = a.Code
-		}
-	}
 
 	URL := strings.NewReplacer(
 		"{{origin}}", origin,
+		"{{destination}}", destination,
 		"{{currency}}", currency,
 	).Replace(searchFaresURL)
 
-	var mu sync.Mutex
 	var fares []airline.Fare
 
-	grp, grpCtx := errgroup.WithContext(ctx)
-	grp.SetLimit(8)
-	for _, dest := range destinations {
-		URL := strings.Replace(URL, "{{destination}}", dest, 1)
-		grp.Go(func() error {
-			sr, _, err := ej.Client.Get(
-				airline.WithPrepare(grpCtx, func(r *http.Request) {
-					r.Header.Set("Accept", "application/json")
-				}), URL)
-			if err != nil {
-				return err
-			}
-			var local []fare
-			b, _ := io.ReadAll(sr)
-			if err = json.Unmarshal(b, &local); err == nil && len(local) == 0 {
-				logger.Error("got", "body", string(b), "parsed", local)
-				return fmt.Errorf("%s: %w: %s", URL, err, string(b))
-			}
+	sr, _, err := ej.Client.Get(
+		airline.WithPrepare(ctx, func(r *http.Request) {
+			r.Header.Set("Accept", "application/json")
+		}), URL)
+	if err != nil {
+		return fares, err
+	}
+	var local []fare
+	b, _ := io.ReadAll(sr)
+	if err = json.Unmarshal(b, &local); err == nil && len(local) == 0 {
+		logger.Error("got", "body", string(b), "parsed", local)
+		return fares, fmt.Errorf("%s: %w: %s", URL, err, string(b))
+	}
 
-			const timePat = "2006-01-02T15:04:05"
-			originTZ := iata.Get(origin).Location
+	const timePat = "2006-01-02T15:04:05"
+	originTZ := iata.Get(origin).Location
 
-			mu.Lock()
-			for _, f := range local {
-				departure, _ := time.ParseInLocation(timePat, f.Departure, originTZ)
-				arrival, _ := time.ParseInLocation(timePat, f.Arrival, iata.Get(f.Destination).Location)
-				fares = append(fares, airline.Fare{
-					Source:  sourceName,
-					Airline: airlineName,
-					Arrival: arrival, Departure: departure,
-					Day:    departure.Format("2006-01-02"),
-					Origin: f.Origin, Destination: f.Destination,
-					Price: f.Price, Currency: currency,
-				})
-			}
-			mu.Unlock()
-			return nil
+	for _, f := range local {
+		departure, _ := time.ParseInLocation(timePat, f.Departure, originTZ)
+		arrival, _ := time.ParseInLocation(timePat, f.Arrival, iata.Get(f.Destination).Location)
+		fares = append(fares, airline.Fare{
+			Source:  sourceName,
+			Airline: airlineName,
+			Arrival: arrival, Departure: departure,
+			Day:    departure.Format("2006-01-02"),
+			Origin: f.Origin, Destination: f.Destination,
+			Price: f.Price, Currency: currency,
 		})
 	}
-	err := grp.Wait()
+
 	return fares, err
 }
 

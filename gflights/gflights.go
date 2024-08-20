@@ -35,22 +35,35 @@ type GFlights struct {
 	session *flights.Session
 }
 
+var _ airline.Airline = GFlights{}
+
+func (G GFlights) Destinations(ctx context.Context, origin string) ([]string, error) {
+	dests := make([]string, 0, len(cities))
+	for c := range cities {
+		dests = append(dests, c)
+	}
+	return dests, nil
+}
+
+func (G GFlights) AllFares(ctx context.Context, origin string, departure time.Time, curr string) ([]airline.Fare, error) {
+	destCities := make([]string, 0, len(cities))
+	for _, s := range cities {
+		destCities = append(destCities, s)
+	}
+	return G.fares(ctx, origin, destCities, departure, curr)
+}
+
 func (G GFlights) Fares(ctx context.Context, origin, destination string, departure time.Time, curr string) ([]airline.Fare, error) {
+	return G.fares(ctx, origin, []string{destination}, departure, curr)
+}
+
+func (G GFlights) fares(ctx context.Context, origin string, destCities []string, departure time.Time, curr string) ([]airline.Fare, error) {
 	logger := airline.CtxLogger(ctx)
 	CURR, err := currency.ParseISO(curr)
 	if err != nil {
 		return nil, err
 	}
 	originCity := cities[origin]
-	var destCities []string
-	if destination != "" {
-		destCities = append(destCities, cities[destination])
-	} else {
-		destCities = make([]string, 0, len(cities))
-		for _, s := range cities {
-			destCities = append(destCities, s)
-		}
-	}
 	// logger.Info("collected", "cities", destCities)
 
 	var mu sync.Mutex

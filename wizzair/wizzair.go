@@ -87,7 +87,16 @@ const (
 	sourceName  = "wizzair"
 )
 
-func (co Wizzair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
+func (co Wizzair) Destinations(ctx context.Context, origin string) ([]string, error) {
+	aa, err := co.FullDestinations(ctx, origin)
+	dests := make([]string, len(aa))
+	for i, a := range aa {
+		dests[i] = a.Code
+	}
+	return dests, err
+}
+
+func (co Wizzair) FullDestinations(ctx context.Context, origin string) ([]ArrivalAirport, error) {
 	sr, _, err := co.client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
 	if err != nil {
 		return nil, err
@@ -96,26 +105,9 @@ func (co Wizzair) Destinations(ctx context.Context, origin string) ([]airline.Ai
 		Airport ArrivalAirport `json:"arrivalAirport"`
 	}
 	err = json.NewDecoder(sr).Decode(&arrivals)
-	arrs := make([]airline.Airport, len(arrivals))
+	arrs := make([]ArrivalAirport, len(arrivals))
 	for i, a := range arrivals {
-		A := a.Airport
-		arrs[i] = airline.Airport{
-			Aliases:  A.Aliases,
-			Tags:     A.Tags,
-			Code:     A.Code,
-			Name:     A.Name,
-			SEO:      A.SEO,
-			Operator: A.Operator,
-			City:     airline.NameCode{Name: A.City.Name, Code: A.City.Code},
-			Region:   airline.NameCode(A.Region),
-			Country: airline.Country{
-				NameCode:       airline.NameCode(A.Country.NameCode),
-				Currency:       A.Country.Currency,
-				DefaultAirport: A.Country.DefaultAirport,
-			},
-			Coordinates: airline.Coordinate(A.Coordinates),
-			TimeZone:    A.TimeZone,
-		}
+		arrs[i] = a.Airport
 	}
 	return arrs, err
 }
@@ -199,6 +191,17 @@ type faresReq struct {
 }
 
 func (co Wizzair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
+	allFares, err := co.AllFares(ctx, origin, departDate, currency)
+	fares := make([]airline.Fare, 0, len(allFares))
+	for _, f := range allFares {
+		if f.Destination == destination {
+			fares = append(fares, f)
+		}
+	}
+	return fares, err
+}
+
+func (co Wizzair) AllFares(ctx context.Context, origin string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	logger := airline.CtxLogger(ctx)
 	originTZ, _ := time.LoadLocation(iata.Get(origin).TimeZone)
 	months := 6
@@ -228,9 +231,6 @@ func (co Wizzair) Fares(ctx context.Context, origin, destination string, departD
 	err = json.NewDecoder(sr).Decode(&fares)
 	ff := make([]airline.Fare, 0, len(fares.Fares))
 	for _, f := range fares.Fares {
-		if destination != "" && f.Destination != destination {
-			continue
-		}
 		const timePat = "2006-01-02T15:04:05"
 		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
 		if err != nil {

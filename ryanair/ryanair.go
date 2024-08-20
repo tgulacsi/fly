@@ -11,10 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/tgulacsi/fly/airline"
 	"github.com/tgulacsi/fly/iata"
@@ -31,7 +28,16 @@ const (
 	sourceName  = "ryanair"
 )
 
-func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Airport, error) {
+func (co Ryanair) Destinations(ctx context.Context, origin string) ([]string, error) {
+	local, err := co.FullDestinations(ctx, origin)
+	dests := make([]string, len(local))
+	for i, a := range local {
+		dests[i] = a.Code
+	}
+	return dests, err
+}
+
+func (co Ryanair) FullDestinations(ctx context.Context, origin string) ([]ArrivalAirport, error) {
 	sr, _, err := co.Client.Get(ctx, strings.Replace(airportsURL, "{{origin}}", origin, 1))
 	if err != nil {
 		return nil, err
@@ -40,28 +46,11 @@ func (co Ryanair) Destinations(ctx context.Context, origin string) ([]airline.Ai
 		Airport ArrivalAirport `json:"arrivalAirport"`
 	}
 	err = json.NewDecoder(sr).Decode(&arrivals)
-	arrs := make([]airline.Airport, len(arrivals))
+	aa := make([]ArrivalAirport, len(arrivals))
 	for i, a := range arrivals {
-		A := a.Airport
-		arrs[i] = airline.Airport{
-			Aliases:  A.Aliases,
-			Tags:     A.Tags,
-			Code:     A.Code,
-			Name:     A.Name,
-			SEO:      A.SEO,
-			Operator: A.Operator,
-			City:     airline.NameCode{Name: A.City.Name, Code: A.City.Code},
-			Region:   airline.NameCode(A.Region),
-			Country: airline.Country{
-				NameCode:       airline.NameCode(A.Country.NameCode),
-				Currency:       A.Country.Currency,
-				DefaultAirport: A.Country.DefaultAirport,
-			},
-			Coordinates: airline.Coordinate(A.Coordinates),
-			TimeZone:    A.TimeZone,
-		}
+		aa[i] = a.Airport
 	}
-	return arrs, err
+	return aa, err
 }
 
 /*
@@ -138,26 +127,26 @@ const faresURL = `https://www.ryanair.com/api/farfnd/v4/oneWayFares/{{origin}}/{
 
 func (co Ryanair) Fares(ctx context.Context, origin, destination string, departDate time.Time, currency string) ([]airline.Fare, error) {
 	logger := airline.CtxLogger(ctx)
-	var airports []airline.Airport
-	getAirports := func() error {
-		var err error
-		if len(airports) == 0 {
-			airports, err = co.Destinations(ctx, origin)
-		}
-		return err
-	}
 
+	destTZ := iata.Get(destination).Location
 	originTZ := iata.Get(origin).Location
-	if originTZ == nil {
-		getAirports()
+	if originTZ == nil || destTZ == nil {
+		airports, err := co.FullDestinations(ctx, origin)
+		if err != nil {
+			return nil, err
+		}
 		for _, a := range airports {
+			if destTZ == nil && a.Code == destination {
+				if destTZ, err = time.LoadLocation(a.TimeZone); err != nil {
+					return nil, err
+				}
+			}
 			if originTZ != nil {
 				continue
 			}
-			backs, _ := co.Destinations(ctx, a.Code)
+			backs, _ := co.FullDestinations(ctx, a.Code)
 			for _, a := range backs {
 				if a.Code == origin {
-					var err error
 					if originTZ, err = time.LoadLocation(a.TimeZone); err != nil {
 						return nil, err
 					}
@@ -167,81 +156,52 @@ func (co Ryanair) Fares(ctx context.Context, origin, destination string, departD
 		}
 	}
 
-	var destinations []string
-	if destination != "" {
-		destinations = []string{destination}
-		if _, ok := iata.Get2(destination); !ok {
-			if err := getAirports(); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		if err := getAirports(); err != nil {
-			return nil, err
-		}
-		destinations = make([]string, len(airports))
-		for i, a := range airports {
-			destinations[i] = a.Code
-		}
-	}
-
-	var mu sync.Mutex
 	var ff []airline.Fare
-	grp, grpCtx := errgroup.WithContext(ctx)
-	grp.SetLimit(8)
-	for _, dest := range destinations {
-		dest := dest
-		grp.Go(func() error {
-			sr, _, err := co.Client.Get(grpCtx, strings.NewReplacer(
-				"{{origin}}", origin,
-				"{{destination}}", dest,
-				"{{currency}}", currency,
-				"{{departDate}}", departDate.Format("2006-01-02"),
-			).Replace(faresURL))
-			if err != nil {
-				return err
-			}
-			var fares struct {
-				Outbound struct {
-					Fares []Fare `json:"fares"`
-				} `json:"outbound"`
-			}
-			var buf strings.Builder
-			io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
-			if logger.Enabled(ctx, slog.LevelDebug) {
-				logger.Debug(buf.String())
-			}
-			if err = json.NewDecoder(sr).Decode(&fares); err != nil {
-				return err
-			}
-			for _, f := range fares.Outbound.Fares {
-				if f.Unavailable || f.SoldOut || f.Departure == "" {
-					continue
-				}
-				const timePat = "2006-01-02T15:04:05"
-				arrival, err := time.ParseInLocation(timePat, f.Arrival, iata.Get(dest).Location)
-				if err != nil {
-					return err
-				}
-				departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
-				if err != nil {
-					return err
-				}
-				mu.Lock()
-				ff = append(ff, airline.Fare{
-					Airline:     airlineName,
-					Source:      sourceName,
-					Origin:      origin,
-					Destination: dest,
-					Day:         f.Day,
-					Price:       f.Price.Value,
-					Currency:    f.Price.Currency,
-					Arrival:     arrival,
-					Departure:   departure,
-				})
-				mu.Unlock()
-			}
-			return nil
+	sr, _, err := co.Client.Get(ctx, strings.NewReplacer(
+		"{{origin}}", origin,
+		"{{destination}}", destination,
+		"{{currency}}", currency,
+		"{{departDate}}", departDate.Format("2006-01-02"),
+	).Replace(faresURL))
+	if err != nil {
+		return ff, err
+	}
+	var fares struct {
+		Outbound struct {
+			Fares []Fare `json:"fares"`
+		} `json:"outbound"`
+	}
+	var buf strings.Builder
+	io.Copy(&buf, io.NewSectionReader(sr, 0, sr.Size()))
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug(buf.String())
+	}
+	if err = json.NewDecoder(sr).Decode(&fares); err != nil {
+		return ff, err
+	}
+	for _, f := range fares.Outbound.Fares {
+		if f.Unavailable || f.SoldOut || f.Departure == "" {
+			continue
+		}
+		const timePat = "2006-01-02T15:04:05"
+		arrival, err := time.ParseInLocation(timePat, f.Arrival, destTZ)
+		if err != nil {
+			return ff, err
+		}
+		departure, err := time.ParseInLocation(timePat, f.Departure, originTZ)
+		if err != nil {
+			return ff, err
+		}
+		ff = append(ff, airline.Fare{
+			Airline:     airlineName,
+			Source:      sourceName,
+			Origin:      origin,
+			Destination: destination,
+			Day:         f.Day,
+			Price:       f.Price.Value,
+			Currency:    f.Price.Currency,
+			Arrival:     arrival,
+			Departure:   departure,
 		})
 	}
 	return ff, nil

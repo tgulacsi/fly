@@ -14,7 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/cozy/httpcache"
 	"github.com/cozy/httpcache/diskcache"
@@ -105,7 +108,45 @@ func (c HTTPClient) Get(ctx context.Context, URL string) (*io.SectionReader, *ht
 }
 
 type Airline interface {
-	Fares(context.Context, string, string, time.Time, string) ([]Fare, error)
+	Fares(ctx context.Context, origin string, destination string, departure time.Time, currency string) ([]Fare, error)
+	Destinations(ctx context.Context, origin string) ([]string, error)
+}
+type AirlineAllFares interface {
+	Airline
+	AllFares(ctx context.Context, origin string, departure time.Time, currency string) ([]Fare, error)
+}
+
+func WithAllFares(A Airline) AirlineAllFares {
+	if x, ok := A.(AirlineAllFares); ok {
+		return x
+	}
+	return withAllFares{Airline: A}
+}
+
+type withAllFares struct{ Airline }
+
+// AllFares returns all the fairs available from the given origin.
+func (co withAllFares) AllFares(ctx context.Context, origin string, departure time.Time, currency string) ([]Fare, error) {
+	destinations, err := co.Airline.Destinations(ctx, origin)
+	if len(destinations) == 0 {
+		return nil, err
+	}
+	grp, grpCtx := errgroup.WithContext(ctx)
+	grp.SetLimit(8)
+	var mu sync.Mutex
+	var fares []Fare
+	for _, dest := range destinations {
+		dest := dest
+		grp.Go(func() error {
+			local, err := co.Fares(grpCtx, origin, dest, departure, currency)
+			mu.Lock()
+			fares = append(fares, local...)
+			mu.Unlock()
+			return err
+		})
+	}
+	err = grp.Wait()
+	return fares, err
 }
 
 type prepareCtx struct{}
