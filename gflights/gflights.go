@@ -54,7 +54,7 @@ func (G GFlights) AllFares(ctx context.Context, origin string, departure time.Ti
 }
 
 func (G GFlights) Fares(ctx context.Context, origin, destination string, departure time.Time, curr string) ([]airline.Fare, error) {
-	return G.fares(ctx, origin, []string{destination}, departure, curr)
+	return G.fares(ctx, origin, []string{cities[destination]}, departure, curr)
 }
 
 func (G GFlights) fares(ctx context.Context, origin string, destCities []string, departure time.Time, curr string) ([]airline.Fare, error) {
@@ -74,6 +74,9 @@ func (G GFlights) fares(ctx context.Context, origin string, destCities []string,
 		cities := make([]string, 0, len(destCities)/8)
 		for i := remainder; i < len(destCities); i += 8 {
 			cities = append(cities, destCities[i])
+		}
+		if len(cities) == 0 {
+			continue
 		}
 		grp.Go(func() error {
 			start := time.Now()

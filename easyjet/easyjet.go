@@ -7,7 +7,6 @@ package easyjet
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -37,7 +36,7 @@ func (ej EasyJet) getRoutes(ctx context.Context) ([]route, error) {
 	var routes []route
 	b, _ := io.ReadAll(sr)
 	if err = json.Unmarshal(b, &routes); err == nil && len(routes) == 0 {
-		err = fmt.Errorf("%s: %w: %s", routesURL, err, string(b))
+		airline.CtxLogger(ctx).Warn("getRoutes", "URL", routesURL, "response", string(b))
 	}
 	return routes, err
 }
@@ -47,6 +46,9 @@ func (ej EasyJet) Destinations(ctx context.Context, origin string) ([]string, er
 	var destinations []string
 	routes, err := ej.getRoutes(ctx)
 	if err == nil {
+		if len(routes) == 0 {
+			return nil, err
+		}
 		for _, r := range routes {
 			if r.Origin == origin {
 				destinations = append(destinations, r.Destination)
@@ -113,7 +115,7 @@ func (ej EasyJet) Fares(ctx context.Context, origin, destination string, departD
 	b, _ := io.ReadAll(sr)
 	if err = json.Unmarshal(b, &local); err == nil && len(local) == 0 {
 		logger.Error("got", "body", string(b), "parsed", local)
-		return fares, fmt.Errorf("%s: %w: %s", URL, err, string(b))
+		return fares, nil
 	}
 
 	const timePat = "2006-01-02T15:04:05"

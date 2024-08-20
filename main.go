@@ -5,9 +5,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"math"
 	"os"
@@ -74,11 +76,23 @@ func Main() error {
 	FS.StringVar(&currency, "currency", currency, "currency")
 	FS.StringVar(&origin, "origin", origin, "origin")
 	FS.Float64Var(&under, "under", 50, "list only under this price")
+	flagFaresOut := FS.String("o", "", "output (default stdout)")
+	flagFaresTemplate := FS.String("template", `{{printf "% 3.2f"`+" .Price}}\t{{.Day}}\t{{.Destination.IATACode}} ({{.Destination.Country}}, {{.Destination.Municipality}})\t{{.Airline}}[{{.Source}}]\n",
+		"template for printing")
 	faresCmd := ffcli.Command{Name: "fares", FlagSet: FS,
 		Exec: func(ctx context.Context, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("need date, got only %d", len(args))
 			}
+			tmpl := template.Must(template.New("print").Parse(*flagFaresTemplate))
+			out := os.Stdout
+			if *flagFaresOut != "" && *flagFaresOut != "-" {
+				var err error
+				if out, err = os.Create(*flagFaresOut); err != nil {
+					return err
+				}
+			}
+			bw := bufio.NewWriter(out)
 			departDate, err := time.ParseInLocation("20060102", strings.Map(func(r rune) rune {
 				if '0' <= r && r <= '9' {
 					return r
@@ -173,11 +187,14 @@ func Main() error {
 				if f.Destination == "" {
 					slog.Warn("no destination", "got", f)
 				}
-				dest := iata.Get(f.Destination)
-				fmt.Printf("% 3.2f\t%s\t%s (%s, %s)\t%s[%s]\n",
-					f.Price, f.Day,
-					f.Destination, dest.Country, dest.Municipality,
-					f.Airline, f.Source)
+
+				if err := tmpl.Execute(bw, struct {
+					airline.Fare
+					Destination iata.Airport
+				}{f, iata.Get(f.Destination)},
+				); err != nil {
+					return err
+				}
 				found = true
 			}
 			if !found {
@@ -186,6 +203,12 @@ func Main() error {
 				} else {
 					slog.Warn("No flight found.")
 				}
+			}
+			if flushErr := bw.Flush(); flushErr != nil && err == nil {
+				err = flushErr
+			}
+			if closeErr := out.Close(); closeErr != nil && err == nil {
+				err = closeErr
 			}
 			slog.Info("statistics", "stats", stats)
 			return err
