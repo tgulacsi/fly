@@ -16,4 +16,10 @@ Collects data from
   fly fares 2024-10-20
 ```
 
-will gather the flights
+will gather the flights.
+
+
+## Examples
+https://tgulacsi.github.io/fly
+
+generated with [./docs/generate.sh]
