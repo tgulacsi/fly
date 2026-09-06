@@ -62,7 +62,7 @@ func Main() error {
 						logger.Error("AbbrCity", "code", c, "error", err)
 					}
 				}
-			} else if a, ok := iata.Get(c); ok && a.Municipality != "" {
+			} else if a := iata.Get(c); a.Municipality != "" {
 				if city, err = session.AbbrCity(ctx, a.Municipality, language.English); err != nil {
 					if _, found, ok := strings.Cut(err.Error(), " found: "); ok && found != "" {
 						city = found

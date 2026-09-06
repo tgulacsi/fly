@@ -1,7 +1,7 @@
 // Copyright 2024 Tamás Gulácsi. All rights reserved.
 // Copyright @hakkotsu (https://www.postman.com/hakkotsu/ryanair/request/6hzi9pu/get-destinations-from-specific-airport)
 //
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: EUPL-1.2
 
 package wizzair
 
@@ -182,7 +182,7 @@ type Coordinate struct {
 	Lon float64 `json:"longitude"`
 }
 
-const faresURL = `https://be.wizzair.com/24.6.0/Api/search/CheapFlights`
+const faresURL = `https://be.wizzair.com/26.10.0/Api/search/CheapFlights`
 
 type faresReq struct {
 	Origin         string `json:"departureStation"`
