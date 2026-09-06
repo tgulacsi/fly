@@ -1,7 +1,7 @@
 // Copyright 2024 Tamás Gulácsi. All rights reserved.
 // Copyright @hakkotsu (https://www.postman.com/hakkotsu/ryanair/request/6hzi9pu/get-destinations-from-specific-airport)
 //
-// SPDX-License-Identifier: EUPL-1.2
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package wizzair
 
